@@ -7,8 +7,8 @@ class WolfSheepGrassModel:
     GRID_WIDTH: int = field()
     GRID_HEIGHT: int = field()
 
-    MAX_WOLVES: int = field(default=30_000)
-    MAX_SHEEP: int = field(default=30_000)
+    MAX_WOLVES: int = field(default=10_000)
+    MAX_SHEEP: int = field(default=10_000)
 
     INIT_WOLVES: int = field()  # 0..250
     WOLF_GAIN_FROM_FOOD: float = field()  # 0..100
@@ -153,9 +153,7 @@ class WolfSheepGrassModel:
 
     def wolves_eat_sheep(self):
         sheep_locs = np.int64(self.sheep_pos)
-        for idx in range(self.wolf_pointer):
-            if not self.wolf_alive[idx]:
-                continue
+        for idx in np.where(self.wolf_alive)[0]:
             x = int(self.wolf_pos[idx][0])
             y = int(self.wolf_pos[idx][1])
             # find all (alive) self.sheep in the same 'pixel'
@@ -172,14 +170,25 @@ class WolfSheepGrassModel:
             local_sheep_idx = local_sheep_idcs[np.random.randint(0, num_local_sheep)]
             self.sheep_alive[local_sheep_idx] = False
             self.wolf_energy[idx] += self.WOLF_GAIN_FROM_FOOD
+            self.num_sheep -= 1
 
     def sheep_die(self):
-        self.sheep_alive = np.logical_and(self.sheep_alive, self.sheep_energy >= 0.0)
+        np.logical_and(self.sheep_alive, self.sheep_energy >= 0.0, out=self.sheep_alive)
         self.num_sheep = int(np.sum(self.sheep_alive))
+        live_sheep = np.where(self.sheep_alive)[0]
+        if live_sheep.shape[0] == 0:
+            self.sheep_pointer = 0
+        else:
+            self.sheep_pointer = live_sheep[-1] + 1
 
     def wolves_die(self):
-        self.wolf_alive[:] = np.logical_and(self.wolf_alive, self.wolf_energy >= 0.0)
+        np.logical_and(self.wolf_alive, self.wolf_energy >= 0.0, out=self.wolf_alive)
         self.num_wolves = int(np.sum(self.wolf_alive))
+        live_wolves = np.where(self.wolf_alive)[0]
+        if live_wolves.shape[0] == 0:
+            self.wolf_pointer = 0
+        else:
+            self.wolf_pointer = live_wolves[-1] + 1
 
     def sheep_reproduce(self):
         reproduce = np.logical_and(

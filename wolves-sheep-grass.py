@@ -99,9 +99,9 @@ def main():
         )
 
         while (
-                tick < args.maximum_time
-                and model.num_wolves > 0
-                and model.num_sheep < model.MAX_SHEEP
+            tick < args.maximum_time
+            and model.num_wolves > 0
+            and model.num_sheep < model.MAX_SHEEP
         ):
             # self.sheep
             model.sheep_move()
@@ -121,6 +121,10 @@ def main():
             model.grow_grass()
 
             tick += 1
+
+            if tick % 100 == 0:
+                model.compact_sheep_arrays()
+                model.compact_wolf_arrays()
 
             print(
                 f"{tick},{model.num_wolves},{model.num_sheep},{np.sum(model.grass)}",
