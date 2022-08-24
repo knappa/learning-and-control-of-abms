@@ -103,22 +103,7 @@ def main():
             and model.num_wolves > 0
             and model.num_sheep < model.MAX_SHEEP
         ):
-            # self.sheep
-            model.sheep_move()
-            model.sheep_energy -= 1.0  # self.sheep metabolism
-            model.sheep_eat_grass()
-            model.sheep_die()
-            model.sheep_reproduce()
-
-            # wolves
-            model.wolves_move()
-            model.wolf_energy -= 1.0  # wolf metabolism
-            model.wolves_eat_sheep()
-            model.wolves_die()
-            model.wolves_reproduce()
-
-            # grass
-            model.grow_grass()
+            model.time_step()
 
             tick += 1
 

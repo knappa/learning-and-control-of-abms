@@ -222,3 +222,21 @@ class WolfSheepGrassModel:
         self.grass_clock -= 1
         self.grass_clock[self.grass] = 0
         self.grass[:] = self.grass_clock <= 0
+
+    def time_step(self):
+        # sheep
+        self.sheep_move()
+        self.sheep_energy -= 1.0  # self.sheep metabolism
+        self.sheep_eat_grass()
+        self.sheep_die()
+        self.sheep_reproduce()
+
+        # wolves
+        self.wolves_move()
+        self.wolf_energy -= 1.0  # wolf metabolism
+        self.wolves_eat_sheep()
+        self.wolves_die()
+        self.wolves_reproduce()
+
+        # grass
+        self.grow_grass()
