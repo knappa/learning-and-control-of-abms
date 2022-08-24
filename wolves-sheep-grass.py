@@ -22,9 +22,9 @@ def main():
         type=float,
         default=float("inf"),
     )
-    parser.add_argument("-gw", "--grid_width", type=int, help="grid width", default=100)
+    parser.add_argument("-gw", "--grid_width", type=int, help="grid width", default=51)
     parser.add_argument(
-        "-gh", "--grid_height", type=int, help="grid height", default=100
+        "-gh", "--grid_height", type=int, help="grid height", default=51
     )
     parser.add_argument(
         "-iw", "--init_wolves", type=int, help="init number of wolves", default=50
