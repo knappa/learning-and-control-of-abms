@@ -54,8 +54,8 @@ class WolfSheepGrassModel:
         self.sheep_alive = np.zeros(self.MAX_SHEEP, dtype=bool)
 
         self.grass = (
-                np.random.rand(self.GRID_WIDTH, self.GRID_HEIGHT)
-                < self.INIT_GRASS_PROPORTION
+            np.random.rand(self.GRID_WIDTH, self.GRID_HEIGHT)
+            < self.INIT_GRASS_PROPORTION
         )
         self.grass_clock = self.GRASS_REGROWTH_TIME * np.random.rand(
             self.GRID_WIDTH, self.GRID_HEIGHT
@@ -71,7 +71,7 @@ class WolfSheepGrassModel:
         self.wolf_dir[: self.num_wolves] = self.wolf_dir[self.wolf_alive]
         self.wolf_energy[: self.num_wolves] = self.wolf_energy[self.wolf_alive]
         self.wolf_alive[: self.num_wolves] = True
-        self.wolf_alive[self.num_wolves:] = False
+        self.wolf_alive[self.num_wolves :] = False
         self.wolf_pointer = self.num_wolves
 
     def compact_sheep_arrays(self):
@@ -79,7 +79,7 @@ class WolfSheepGrassModel:
         self.sheep_dir[: self.num_sheep] = self.sheep_dir[self.sheep_alive]
         self.sheep_energy[: self.num_sheep] = self.sheep_energy[self.sheep_alive]
         self.sheep_alive[: self.num_sheep] = True
-        self.sheep_alive[self.num_sheep:] = False
+        self.sheep_alive[self.num_sheep :] = False
         self.sheep_pointer = self.num_sheep
 
     def create_wolf(self, pos=None, energy=None):
@@ -87,7 +87,9 @@ class WolfSheepGrassModel:
             self.compact_wolf_arrays()
             # maybe the array is already compacted:
             if self.wolf_pointer >= self.MAX_WOLVES:
-                raise RuntimeError("Max wolves exceeded.")
+                raise RuntimeError(
+                    "Max wolves exceeded, you may want to change the MAX_WOLVES parameter."
+                )
         if pos is None:
             self.wolf_pos[self.wolf_pointer, 0] = self.GRID_WIDTH * np.random.rand()
             self.wolf_pos[self.wolf_pointer, 1] = self.GRID_HEIGHT * np.random.rand()
@@ -96,7 +98,7 @@ class WolfSheepGrassModel:
         self.wolf_dir[self.wolf_pointer] = 2 * np.pi * np.random.rand()
         if energy is None:
             self.wolf_energy[self.wolf_pointer] = (
-                    2 * self.WOLF_GAIN_FROM_FOOD * np.random.rand()
+                2 * self.WOLF_GAIN_FROM_FOOD * np.random.rand()
             )
         else:
             self.wolf_energy[self.wolf_pointer] = energy
@@ -109,7 +111,9 @@ class WolfSheepGrassModel:
             self.compact_sheep_arrays()
             # maybe the array is already compacted:
             if self.sheep_pointer >= self.MAX_SHEEP:
-                raise RuntimeError("Max self.sheep exceeded.")
+                raise RuntimeError(
+                    "Max sheep exceeded, you may want to change the MAX_SHEEP parameter."
+                )
         if pos is None:
             self.sheep_pos[self.sheep_pointer, 0] = self.GRID_WIDTH * np.random.rand()
             self.sheep_pos[self.sheep_pointer, 1] = self.GRID_HEIGHT * np.random.rand()
@@ -118,7 +122,7 @@ class WolfSheepGrassModel:
         self.sheep_dir[self.sheep_pointer] = 2 * np.pi * np.random.rand()
         if energy is None:
             self.sheep_energy[self.sheep_pointer] = (
-                    2 * self.SHEEP_GAIN_FROM_FOOD * np.random.rand()
+                2 * self.SHEEP_GAIN_FROM_FOOD * np.random.rand()
             )
         else:
             self.sheep_energy[self.sheep_pointer] = energy
