@@ -7,12 +7,14 @@ from attr import define, field
 
 
 class EpiType(IntEnum):
+    Empty = 0
     Healthy = 1
     Infected = 2
     Dead = 3
     Apoptosed = 4
 
 
+# noinspection PyPep8Naming
 @define(kw_only=True)
 class AnCockrellModel:
     GRID_WIDTH: int = field()
@@ -20,7 +22,10 @@ class AnCockrellModel:
 
     BAT: bool = field()
 
-    MAX_EPIS: int = field(default=10_000)
+    INIT_DCS: int = field()
+    INIT_NKS: int = field()
+    INIT_MACROS: int = field()
+
     MAX_LYMPHNODES: int = field(default=10_000)
     MAX_PMNS: int = field(default=10_000)
     MAX_DCS: int = field(default=10_000)
@@ -28,6 +33,13 @@ class AnCockrellModel:
     MAX_NKS: int = field(default=10_000)
     MAX_ACTIVATED_ENDOS: int = field(default=10_000)
 
+    macro_phago_recovery: float = field(default=0.5)
+    macro_phago_limit: int  = field(default=1_000)
+
+    viral_carrying_capacity: int = field(default=500)
+    resistance_to_infection: int = field(default=75)
+
+    epithelium: np.ndarray = field(init=False)
     extracellular_virus: np.ndarray = field(init=False)
     epi_regrow_counter: np.ndarray = field(init=False)
     endothelial_activation: np.ndarray = field(init=False)
@@ -64,6 +76,52 @@ class AnCockrellModel:
     sheep_alive: np.ndarray = field(init=False)
     sheep_pointer: int = field(init=False)  # all indices >= this are not alive
 
+    @property
+    def total_T1IFN(self) -> float:
+        return float(np.sum(self.T1IFN))
+
+    @property
+    def total_TNF(self) -> float:
+        return float(np.sum(self.TNF))
+
+    @property
+    def total_IFNg(self) -> float:
+        return float(np.sum(self.IFNg))
+
+    @property
+    def total_IL6(self) -> float:
+        return float(np.sum(self.IL6))
+
+    @property
+    def total_IL1(self) -> float:
+        return float(np.sum(self.IL1))
+
+    @property
+    def total_IL8(self) -> float:
+        return float(np.sum(self.IL8))
+
+    @property
+    def total_IL10(self) -> float:
+        return float(np.sum(self.IL10))
+
+    @property
+    def total_IL12(self) -> float:
+        return float(np.sum(self.IL12))
+
+    @property
+    def total_IL18(self) -> float:
+        return float(np.sum(self.IL18))
+
+    @property
+    def total_extracellular_virus(self) -> float:
+        return float(np.sum(self.extracellular_virus))
+
+    @property
+    def total_intracellular_virus(self) -> float:
+        return float(np.sum(self.epi_intracellular_virus))
+
+    # self.system_health =  count epis / 2601 * 100
+
     def __attrs_post_init__(self):
         self.num_epis = 0
         self.epi_pointer = 0
@@ -84,6 +142,11 @@ class AnCockrellModel:
         self.epi_inflammasome_primed = np.zeros(self.MAX_EPIS, dtype=np.float64)
         self.epi_inflammasome_active = np.zeros(self.MAX_EPIS, dtype=np.float64)
 
+        self.num_pmns = 0
+        self.pmn_pointer = 0
+        self.pmn_mask = np.zeros(self.MAX_PMNS, dtype=bool)
+        self.pmn_locations = np.zeros((self.MAX_PMNS, 2), dtype=np.float64)
+        self.pmn_age = np.zeros(self.MAX_PMNS, dtype=np.int64)
         #
         #   ;; dc specific variables NOT CURRENTLY ACTIVE in V2.0
         #   dc-location ;; this is a chooser with either "LymphNode" or "tissue". If "tissue" then interact with screen, If "LN" then interact with NaiveCD8s off screen
@@ -102,9 +165,6 @@ class AnCockrellModel:
         #   ;; activated-endo specific variables
         #   adhesion-counter ;; PMN adhesion-migration takes 6-12 hours; 36 ticks = 6 hours
 
-        MAX_INFECTED_EPIS: int = field(default=10_000)
-        MAX_DEAD_EPIS: int = field(default=10_000)
-        MAX_APOPTOSED_EPIS: int = field(default=10_000)
         MAX_LYMPHNODES: int = field(default=10_000)
         MAX_PMNS: int = field(default=10_000)
         MAX_DCS: int = field(default=10_000)
@@ -112,24 +172,16 @@ class AnCockrellModel:
         MAX_NKS: int = field(default=10_000)
         MAX_ACTIVATED_ENDOS: int = field(default=10_000)
 
-        self.num_wolves = 0
-        self.wolf_pointer = 0
-        self.wolf_pos = np.zeros((self.MAX_WOLVES, 2), dtype=np.float64)
-        self.wolf_dir = np.zeros(self.MAX_WOLVES, dtype=np.float64)
-        self.wolf_energy = np.zeros(self.MAX_WOLVES, dtype=np.float64)
-        self.wolf_alive = np.zeros(self.MAX_WOLVES, dtype=bool)
-
-        self.num_sheep = 0
-        self.sheep_pointer = 0
-        self.sheep_pos = np.zeros((self.MAX_SHEEP, 2), dtype=np.float64)
-        self.sheep_dir = np.zeros(self.MAX_SHEEP, dtype=np.float64)
-        self.sheep_energy = np.zeros(self.MAX_SHEEP, dtype=np.float64)
-        self.sheep_alive = np.zeros(self.MAX_SHEEP, dtype=bool)
-
         # spatial quantities
-        self.extracellular_virus = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int32)
-        self.epi_regrow_counter = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int32)
-        self.endothelial_activation = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int32)
+        self.extracellular_virus = np.zeros(
+            (self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int32
+        )
+        self.epi_regrow_counter = np.zeros(
+            (self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int32
+        )
+        self.endothelial_activation = np.zeros(
+            (self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int32
+        )
         self.P_DAMPS = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
         self.ROS = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
         self.PAF = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
@@ -163,15 +215,14 @@ class AnCockrellModel:
         #       ]
         #     ]
         #   ]
-        for col, row in itertools.product(range(self.GRID_WIDTH), range(self.GRID_HEIGHT)):
-            self.create_epi(position=(col, row),
-                            intracellular_virus=0.0,
-                            viral_carrying_capacity=500,
-                            resistance_to_infection=75,
-                            cell_membrane=95 + randint(0, 51),
-                            apoptosis_counter=0,
-                            apoptotis_threshold=450 + randint(0, 100),
-                            T1IFN=5 if self.BAT and random() < 0.01 else 0)
+        self.epithelium = np.full((self.GRID_WIDTH, self.GRID_HEIGHT), EpiType.Healthy, dtype=np.int64)
+        self.epithelium_intracellular_virus = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int64)
+        self.epithelium_cell_membrane = 95 + (51*np.random.rand((self.GRID_WIDTH, self.GRID_HEIGHT))).asdtype(np.int64)
+        self.epithelium_apoptosis_counter = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int64)
+        self.epithelium_apoptosis_threshold = 450 + (100*np.random.rand((self.GRID_WIDTH, self.GRID_HEIGHT))).asdtype(np.int64)
+
+        if self.BAT:
+            self.T1IFN[:,:] = 5*(np.random.rand((self.GRID_WIDTH, self.GRID_HEIGHT)) < 0.01)
 
         #  create-NKs 25 ;; Initial-NKs slider for later
         #   [set color orange
@@ -202,17 +253,18 @@ class AnCockrellModel:
         #     set cells-eaten 0
         #   ]
         for _ in range(self.INIT_MACROS):
-            self.create_macro(macro_phago_limit=1000,
-                              pre_il1=0,
-                              pre_il18=0,
-                              inflammasome_primed=False,
-                              inflammasome_active=False,
-                              macro_activation_level=0,
-                              macro_phago_counter=0,
-                              pyroptosis_counter=0,
-                              virus_eaten=0,
-                              cells_eaten=0,
-                              )
+            self.create_macro(
+                macro_phago_limit=1000,
+                pre_il1=0,
+                pre_il18=0,
+                inflammasome_primed=False,
+                inflammasome_active=False,
+                macro_activation_level=0,
+                macro_phago_counter=0,
+                pyroptosis_counter=0,
+                virus_eaten=0,
+                cells_eaten=0,
+            )
 
         #  create-DCs 50 ;; Initial-DCs slider for later
         #   [set color cyan
@@ -226,7 +278,7 @@ class AnCockrellModel:
         for _ in range(self.INIT_DCS):
             self.create_dc(dc_location="tissue", trafficking_counter=0)
 
-    def infect(self):
+    def infect(self, init_inoculum: int):
         # to infect
         # create-initial-inoculum-makers initial-inoculum ;; this is just to make a random distribution of inoculum
         #  [set color red
@@ -238,72 +290,15 @@ class AnCockrellModel:
         # ask patches
         #   [set-background]
         # end
-        pass
-
-    def go(self):
-        # to go ;; system "dies" at 80% epi death = 2080
-        #
-        # if ticks = stopping-tick ;; Length of run can be controlled using "stopping-tick" slider. Note that this may need to be modified if running experiments in Behavior Space
-        #   [stop]
-        # if ticks mod 6 = 0 ;; 1 tick = 10 minutes
-        #   [set hours hours + 1 ;; 1 hour = 6 ticks
-        #     if hours mod 24 = 0
-        #       [set days days + 1] ;; 1 day = 144 ticks, 3 days = 432 ticks, 5 days = 720 ticks, 7 days = 1008 ticks, 14 days = 2016, 28 days = 4032 ticks
-        #   ]
-        # tick
-        # if count apoptosed-epis + count dead-epis >=  2080 ;; this is 80% of the epi cells dead (total epis = 2601)
-        #   [stop]
-        #
-        #     ;;sum cytokines and variables
-        #   set total-T1IFN sum [T1IFN] of patches
-        #   set total-TNF sum [TNF] of patches
-        #   set total-IFNg sum [IFNg] of patches
-        #   set total-IL6 sum [IL6] of patches
-        #   set total-IL1 sum [IL1] of patches
-        #   set total-IL8 sum [IL8] of patches
-        #   set total-IL10 sum [IL10] of patches
-        #   set total-IL12 sum [IL12] of patches
-        #   set total-IL18 sum [IL18] of patches
-        #   set total-extracellular-virus sum [extracellular-virus] of patches
-        #   set total-intracellular-virus sum [intracellular-virus] of infected-epis
-        #
-        #
-        #   set %system-health count epis / 2601 * 100
-        #
-        # ask dead-epis
-        #   [dead-epi-function]
-        # ask PMNs
-        #   [PMN-function]
-        # ask Macros
-        #   [Macro-function]
-        # ask NKs
-        #   [NK-function]
-        # ASK DCS
-        #   [DC-function]
-        # ask activated-endos
-        #   [activated-endo-function]
-        #
-        # ask epis
-        #   [epi-function]
-        #
-        #   set total-P/DAMPS sum [P/DAMPs] of patches ;; need to calculate here, if calculate after diffuse/evaporate/cleanup there is no value for threshold < 0.13
-        #
-        # ask infected-epis
-        #   [infected-epi-function]
-        #
-        # diffuse-functions
-        #
-        # ;; this is to remove low levels of extracellular variables
-        # ask patches
-        #   [regrow-epis
-        #    set-background
-        #    evaporate ;; This order is important, if you put evaporate after cleanup you never get decent levels of cytokine
-        #    cleanup
-        #  ]
-        #
-        #
-        # end
-        pass
+        rows, cols = np.divmod(
+            np.random.choice(self.GRID_WIDTH * self.GRID_HEIGHT, init_inoculum),
+            self.GRID_WIDTH,
+        )
+        if init_inoculum == 1:
+            rows = [rows[0]]
+            cols = [cols[0]]
+        for row, col in zip(rows, cols):
+            self.extracellular_virus[row, col] = np.random.randint(80, 120)
 
     def infected_epi_function(self):
         # to infected-epi-function
@@ -423,14 +418,28 @@ class AnCockrellModel:
         #
         # end
 
-    def pmn_function(self):
-        pass
+    def dead_epi_update(self):
+        dead_epi_mask = self.epi_mask & (self.epi_type == EpiType.Dead)
+        locations = self.epi_pos[dead_epi_mask].astype(np.int64)
+        self.P_DAMPS[tuple(locations.T)] += 1
+        # to dead-epi-function
+        # set P/DAMPs P/DAMPs + 1
+        # end
+
+    def pmn_update(self):
         # to PMN-function ;; OMNs are made in activated-endo-function
+
         # if age > 36 ;; baseline 6 hour tissue lifespan
         #   ;; once migrated into tissue committed to dying via burst
         #   [set ROS ROS + 10
         #    set IL1 IL1 + 1
         #    die]
+        age_mask = self.pmn_mask & (self.pmn_age > 36)
+        locations = self.pmn_locations[age_mask].astype(np.int64)
+        self.ROS[tuple(locations.T)] += 10
+        self.IL1[tuple(locations.T)] += 1
+        self.pmn_mask[age_mask] = False
+
         #
         # ;; chemotaxis to PAF and IL8
         # let p max-one-of neighbors [PAF + IL8]
@@ -441,13 +450,45 @@ class AnCockrellModel:
         #     [set heading random 360
         #       fd 1]
         #   ]
+        chemoattractant = self.PAF + self.IL8
+        chemoattractant_dx = (
+            np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
+        ) / 2.0
+        chemoattractant_dy = (
+            np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
+        ) / 2.0
+        locations = self.pmn_locations[self.pmn_mask].astype(np.int64)
+        vecs = np.stack(
+            [
+                chemoattractant_dx[tuple(locations.T)],
+                chemoattractant_dy[tuple(locations.T)],
+            ],
+            axis=1,
+        )
+        norms = np.linalg.norm(vecs, axis=-1)
+        norms[norms <= 1e-8] = 1.0  # effectively zero norm vectors will be unnormalized
+        self.pmn_locations[self.pmn_mask] += 0.1 * vecs / norms
+        self.pmn_dirs[self.pmn_mask] = np.arctan2(vecs[:, 1], vecs[:, 0])
+
         #   [wiggle
         #   ]
-        #
+        self.pmn_dirs += (
+            (np.random.rand(self.MAX_PMNS) - np.random.rand(self.MAX_PMNS))
+            * np.pi
+            / 4.0
+        )
+        directions = np.stack([np.cos(self.pmn_dirs), np.sin(self.pmn_dirs)], axis=1)
+        self.pmn_locations += directions
+        self.pmn_locations = np.mod(
+            self.pmn_locations, [self.GRID_WIDTH, self.GRID_HEIGHT]
+        )
+
         #  set age age + 1
+        self.pmn_age[self.pmn_mask] += 1
+
         # end
 
-    def nk_function(self):
+    def nk_update(self):
         pass
         # to NK-function
         #
@@ -477,27 +518,87 @@ class AnCockrellModel:
         # set IL18 max list 0 IL18 - 0.1
         # end
 
-    def macro_function(self):
-        pass
+    def macro_update(self):
         # to macro-function
         #
         # ; check to see if macro gets infected
         # virus-invade-cell
+        mask = self.macro_mask
+        locations = self.macro_locations[mask].astype(np.int64)
+        extracellular_virus_at_locations = self.extracellular_virus[tuple(locations.T)]
+        cells_to_invade = (
+            np.random.rand(extracellular_virus_at_locations.shape)
+            * extracellular_virus_at_locations
+            > self.macro_resistance_to_infection
+        )
+        self.macro_internal_virus[mask][cells_to_invade] += 1
+        self.extracellular_virus[tuple(locations[cells_to_invade].T)] -= 1
+        self.macro_infected[mask][cells_to_invade] = True
+
         #   ; macro-activation-level keeps track of M1 (pro) or M2 (anti) status
         #   ; there is hysteresis because it modifies existing status
         # set macro-activation-level macro-activation-level + T1IFN + P/DAMPS + IFNg + IL1 - (2 * IL10) ;; currently a gap between pro and anti macros
-        #
+        self.macro_activation[mask] = (
+            self.T1IFN[tuple(locations.T)]
+            + self.P_DAMPS[tuple(locations.T)]
+            + self.IFNg[tuple(locations.T)]
+            + self.IL1
+            - 2 * self.IL10[tuple(locations.T)]
+        )
+
         #   ;; separate out inflammasome mediated functions from other pro macro functions
         #   ;; so IL1/IL18 production, induction of pyroptosis
         #   ;; as with all sequential processes, inflammasome priming/activation/effects coded in reverse order
         # inflammasome-function
+
+        # to inflammasome-function
+        #  ;; inflammasome effects
         #
+        #   if pyroptosis-counter > 12  ;; 120 minutes
+        #   [pyroptosis]
+        #
+        #   if inflammasome-active = true ;; this is coded this way to draw out the release of IL1 and IL18 (make less jumpy)
+        #     [set IL1 Il1 + 1
+        #      set pre-IL1 pre-IL1 + 5 ;; this means pre-IL1 will be 12 at time of burst, which is IL1 level at burst
+        #      set IL18 IL18 + 1
+        #      set pre-IL18 pre-IL18 + 0.5 ;; mimic IL1 at the moment, half amount generated though (arbitrary)
+        #      set pyroptosis-counter pyroptosis-counter + 1] ;; Pyroptosis takes 120 min from inflammasome activation to pyroptosis so counter threshold is 12
+        #
+        #   ;; stage 2 = activation of inflammasome => use virus-eaten as proxy for intracellular viral products, effects of phagocytosis
+        #   if inflammasome-primed = true
+        #    [if virus-eaten / 10 > inflammasome-activation-threshold ;; extra-, intra- and eaten virus in the scale of up to 100
+        #                                                           ;; macro-phago-limit set to 1000 (with virus-eaten / 10), activation thresholds ~ 50
+        #     [set inflammasome-active true
+        #      set shape "target"
+        #      set size 1.5
+        #     ]
+        #   ]
+        #
+        #   ;; stage 1 = Priming by P/DAMPS or TNF
+        #   if P/DAMPS + TNF > inflammasome-priming-threshold
+        #   [set inflammasome-primed true]
+        # ;;  [set inflammasome "inactive"]
+        #
+        # end
+
         #   ;; consumption of activating cytokines
         # set T1IFN max list 0 T1IFN - 0.1
         # set IFNg max list 0 IFNg - 0.1
         # set IL10 max list 0 IL10 - 0.1
         # set IL1 max list 0 IL1 - 0.1
-        #
+        self.T1IFN[tuple(locations.T)] = np.maximum(
+            0.0, self.T1IFN[tuple(locations.T)] - 0.1
+        )
+        self.IFNg[tuple(locations.T)] = np.maximum(
+            0.0, self.IFNg[tuple(locations.T)] - 0.1
+        )
+        self.IL10[tuple(locations.T)] = np.maximum(
+            0.0, self.IL10[tuple(locations.T)] - 0.1
+        )
+        self.IL1[tuple(locations.T)] = np.maximum(
+            0.0, self.IL1[tuple(locations.T)] - 0.1
+        )
+
         #   ;; Chemotaxis to T1IFN made by infected-epis, slows movement rate to 1/10 of uphill primitive. Also chemotaxis to DAMPs
         # let p max-one-of neighbors [T1IFN + P/DAMPS]  ;; or neighbors4
         #   ifelse [T1IFN + P/DAMPS] of p > (T1IFN + P/DAMPS) and [T1IFN + P/DAMPS] of p != 0
@@ -508,35 +609,96 @@ class AnCockrellModel:
         #     [set heading random 360
         #       fd 1]
         #   ]
+        chemoattractant = self.T1IFN + self.P_DAMPS
+        chemoattractant_dx = (
+            np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
+        ) / 2.0
+        chemoattractant_dy = (
+            np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
+        ) / 2.0
+        locations = self.macro_locations[self.macro_mask].astype(np.int64)
+        vecs = np.stack(
+            [
+                chemoattractant_dx[tuple(locations.T)],
+                chemoattractant_dy[tuple(locations.T)],
+            ],
+            axis=1,
+        )
+        norms = np.linalg.norm(vecs, axis=-1)
+        norms[norms <= 1e-8] = 1.0  # effectively zero norm vectors will be unnormalized
+        self.macro_locations[self.macro_mask] += 0.1 * vecs / norms
+        self.macro_dirs[self.macro_mask] = np.arctan2(vecs[:, 1], vecs[:, 0])
+
         #   [wiggle
         #   ]
+        self.macro_dirs += (
+            (
+                np.random.rand(self.MAX_MACROPHAGES)
+                - np.random.rand(self.MAX_MACROPHAGES)
+            )
+            * np.pi
+            / 4.0
+        )
+        self.macro_locations += np.stack(
+            [np.cos(self.macro_dirs), np.sin(self.macro_dirs)], axis=1
+        )
+        self.macro_locations = np.mod(
+            self.macro_locations, [self.GRID_WIDTH, self.GRID_HEIGHT]
+        )
+
         #     ;;PHAGOCYTOSIS LIMIT check
         #   ;; check for macro-phago-limit
-        #   set macro-phago-counter max list 0 (cells-eaten + (virus-eaten / 10) - macro-phago-recovery);; macro-phago-recovery decrements counter to simulate internal processing, proxy for new macros
-        #                                                                                               ;; =2 => Exp 5
+        #   set macro-phago-counter max list 0 (cells-eaten + (virus-eaten / 10) - macro-phago-recovery)
+        #   ;; macro-phago-recovery decrements counter to simulate internal processing, proxy for new macros
+        #   ;; =2 => Exp 5
+
+        macro_phago_counter = np.maximum(
+            0.0,
+            self.macro_cells_eaten[self.macro_mask]
+            - self.macro_virus_eaten[self.macro_mask] / 10
+            - self.macro_phago_recovery,
+        )
+        under_limit_mask = macro_phago_counter < self.macro_phago_limit
+        locations = self.macro_locations[self.macro_mask][under_limit_mask].astype(np.int64)
+
         #   ifelse macro-phago-counter >= macro-phago-limit ;; this will eventually be pyroptosis
         #     [set size 2]
         #     [;; PHAGOCYTOSIS
         #     set size 1
         #     ;; of virus, uses local variable "q" to represent amount of virus eaten (avoid negative values)
         #     if extracellular-virus > 0
-        #      [let q max list 0 (extracellular-virus - 10) ;; currently set as arbitrary 10 amount of extracellular virus eaten per step
+        #      [let q max list 0 (extracellular-virus - 10)
+        #      ;; currently set as arbitrary 10 amount of extracellular virus eaten per step
         #       set extracellular-virus extracellular-virus - q
         #       set virus-eaten virus-eaten + q
         #      ]
+
+        virus_uptake = np.maximum(10.0, self.extracellular_virus[tuple(locations.T)])
+        self.extracellular_virus[tuple(locations.T)] -= virus_uptake
+        self.macro_virus_eaten[self.macro_mask][under_limit_mask] += virus_uptake
+
         #     ;; of apoptosed epis
         #     if count apoptosed-epis-here > 0
         #      [ask apoptosed-epis-here [die]
         #       set cells-eaten cells-eaten + 1
         #       set apoptosis-eaten-counter apoptosis-eaten-counter + 1
         #      ]
+
+        apoptosed_epis = self.epithelium[tuple(locations.T)] == EpiType.Apoptosed
+        self.macro_cells_eaten[self.macro_mask][apoptosed_epis] += 1
+        self.apoptosis_eaten_counter += np.sum(apoptosed_epis)
+
         #    ;; of dead epis
         #     if count dead-epis-here > 0
         #      [ask dead-epis-here [die]
         #       set cells-eaten cells-eaten + 1
         #      ]
         #   ]
-        #
+
+        dead_epis = self.epithelium[tuple(locations.T)] == EpiType.Dead
+        self.macro_cells_eaten[self.macro_mask][dead_epis] += 1
+        self.epithelium[tuple(locations[dead_epis].T)] = EpiType.Empty
+
         # if macro-activation-level > 5 ;; This is where decreased sensativity to P/DAMPS can be seen. Link macro-activation-level to Inflammasome variable?
         #                               ;; increased from 1.1 to 5 for V1.1
         #  [;; Proinflammatory cytokine production
@@ -552,7 +714,11 @@ class AnCockrellModel:
         #
         #   set macro-activation-level macro-activation-level - 5 ;; this is to simulate macrophages returning to baseline as intracellular factors lose stimulation
         #  ]
-        #
+
+        activated_macros = self.macro_mask & (self.macro_activation_level > 5)
+
+
+
         # if macro-activation-level < -5 ;; this keeps macros from self activating wrt IL10 in perpetuity
         #   [set color pink ;; tracker
         #   ;; Antiinflammatory cytokine production
@@ -621,7 +787,7 @@ class AnCockrellModel:
         #
         # end
 
-    def dc_function(self):
+    def dc_update(self):
         pass
         # to DC-function
         #
@@ -663,7 +829,7 @@ class AnCockrellModel:
         #
         # end
 
-    def epi_function(self):
+    def epi_update(self):
         pass
         # to epi-function
         # ;; necrosis from PMN burst
@@ -736,7 +902,7 @@ class AnCockrellModel:
         #       [set P/DAMPs P/DAMPs + metabolic-byproduct]
         # end
 
-    def activated_endo_function(self):
+    def activated_endo_update(self):
         pass
         # to activated-endo-function ;; are made in epi-function
         # set PAF PAF + 1
@@ -840,147 +1006,51 @@ class AnCockrellModel:
         # fd 0.1
         # end
 
-    # def compact_wolf_arrays(self):
-    #     self.wolf_pos[: self.num_wolves] = self.wolf_pos[self.wolf_alive]
-    #     self.wolf_dir[: self.num_wolves] = self.wolf_dir[self.wolf_alive]
-    #     self.wolf_energy[: self.num_wolves] = self.wolf_energy[self.wolf_alive]
-    #     self.wolf_alive[: self.num_wolves] = True
-    #     self.wolf_alive[self.num_wolves:] = False
-    #     self.wolf_pointer = self.num_wolves
-    #
-    # def create_wolf(self, pos=None, energy=None):
-    #     if self.wolf_pointer >= self.MAX_WOLVES:
-    #         self.compact_wolf_arrays()
-    #         # maybe the array is already compacted:
-    #         if self.wolf_pointer >= self.MAX_WOLVES:
-    #             raise RuntimeError(
-    #                 "Max wolves exceeded, you may want to change the MAX_WOLVES parameter."
-    #             )
-    #     if pos is None:
-    #         self.wolf_pos[self.wolf_pointer, 0] = self.GRID_WIDTH * np.random.rand()
-    #         self.wolf_pos[self.wolf_pointer, 1] = self.GRID_HEIGHT * np.random.rand()
-    #     else:
-    #         self.wolf_pos[self.wolf_pointer] = pos
-    #     self.wolf_dir[self.wolf_pointer] = 2 * np.pi * np.random.rand()
-    #     if energy is None:
-    #         self.wolf_energy[self.wolf_pointer] = (
-    #                 2 * self.WOLF_GAIN_FROM_FOOD * np.random.rand()
-    #         )
-    #     else:
-    #         self.wolf_energy[self.wolf_pointer] = energy
-    #     self.wolf_alive[self.wolf_pointer] = True
-    #     self.num_wolves += 1
-    #     self.wolf_pointer += 1
-
-    def wolves_move(self):
-        self.wolf_dir += (2 * np.random.rand(self.MAX_WOLVES) - 1) * 2 * np.pi / 50
-        directions = np.stack([np.cos(self.wolf_dir), np.sin(self.wolf_dir)], axis=1)
-        self.wolf_pos += directions
-        self.wolf_pos[:, 0] = self.wolf_pos[:, 0] % self.GRID_WIDTH
-        self.wolf_pos[:, 1] = self.wolf_pos[:, 1] % self.GRID_HEIGHT
-
-    def sheep_eat_grass(self):
-        for idx in range(self.sheep_pointer):
-            if not self.sheep_alive[idx]:
-                continue
-            x = int(self.sheep_pos[idx][0])
-            y = int(self.sheep_pos[idx][1])
-            if self.grass[x, y]:
-                self.sheep_energy[idx] += self.SHEEP_GAIN_FROM_FOOD
-                self.grass[x, y] = False
-                self.grass_clock[x, y] = self.GRASS_REGROWTH_TIME
-
-    def wolves_eat_sheep(self):
-        sheep_locs = np.int64(self.sheep_pos)
-        for idx in np.where(self.wolf_alive)[0]:
-            x = int(self.wolf_pos[idx][0])
-            y = int(self.wolf_pos[idx][1])
-            # find all (alive) self.sheep in the same 'pixel'
-            local_sheep_idcs = np.where(
-                np.logical_and(
-                    self.sheep_alive,
-                    np.logical_and(sheep_locs[:, 0] == x, sheep_locs[:, 1] == y),
-                )
-            )[0]
-            num_local_sheep = local_sheep_idcs.shape[0]
-            if num_local_sheep <= 0:
-                continue
-            # select one at random and eat it
-            local_sheep_idx = local_sheep_idcs[np.random.randint(0, num_local_sheep)]
-            self.sheep_alive[local_sheep_idx] = False
-            self.wolf_energy[idx] += self.WOLF_GAIN_FROM_FOOD
-            self.num_sheep -= 1
-
-    def sheep_die(self):
-        np.logical_and(self.sheep_alive, self.sheep_energy >= 0.0, out=self.sheep_alive)
-        self.num_sheep = int(np.sum(self.sheep_alive))
-        live_sheep = np.where(self.sheep_alive)[0]
-        if live_sheep.shape[0] == 0:
-            self.sheep_pointer = 0
-        else:
-            self.sheep_pointer = live_sheep[-1] + 1
-
-    def wolves_die(self):
-        np.logical_and(self.wolf_alive, self.wolf_energy >= 0.0, out=self.wolf_alive)
-        self.num_wolves = int(np.sum(self.wolf_alive))
-        live_wolves = np.where(self.wolf_alive)[0]
-        if live_wolves.shape[0] == 0:
-            self.wolf_pointer = 0
-        else:
-            self.wolf_pointer = live_wolves[-1] + 1
-
-    def sheep_reproduce(self):
-        reproduce = np.logical_and(
-            self.sheep_alive,
-            np.random.rand(self.MAX_SHEEP) < self.SHEEP_REPRODUCE / 100.0,
-        )
-        self.sheep_energy[reproduce] /= 2.0
-        reproducing_sheep_pos = np.copy(self.sheep_pos[reproduce])
-        reproducing_sheep_energy = np.copy(self.sheep_energy[reproduce])
-
-        for idx in range(np.sum(reproduce)):
-            self.create_sheep(
-                pos=reproducing_sheep_pos[idx], energy=reproducing_sheep_energy[idx]
-            )
-
-    def wolves_reproduce(self):
-        reproduce = np.logical_and(
-            self.wolf_alive,
-            np.random.rand(self.MAX_WOLVES) < self.WOLF_REPRODUCE / 100.0,
-        )
-        self.wolf_energy[reproduce] /= 2.0
-        reproducing_wolf_pos = np.copy(self.wolf_pos[reproduce])
-        reproducing_wolf_energy = np.copy(self.wolf_energy[reproduce])
-
-        for idx in range(np.sum(reproduce)):
-            self.create_wolf(
-                pos=reproducing_wolf_pos[idx], energy=reproducing_wolf_energy[idx]
-            )
-
-    def grow_grass(self):
-        self.grass_clock -= 1
-        self.grass_clock[self.grass] = 0
-        self.grass[:] = self.grass_clock <= 0
-
     def time_step(self):
-        # sheep
-        self.sheep_move()
-        self.sheep_energy -= 1.0  # self.sheep metabolism
-        self.sheep_eat_grass()
-        self.sheep_die()
-        self.sheep_reproduce()
+        # if count apoptosed-epis + count dead-epis >=  2080 ;; this is 80% of the epi cells dead (total epis = 2601)
+        #   [stop]
 
-        # wolves
-        self.wolves_move()
-        self.wolf_energy -= 1.0  # wolf metabolism
-        self.wolves_eat_sheep()
-        self.wolves_die()
-        self.wolves_reproduce()
+        self.dead_epi_update()
+        self.pmn_update()
+        self.macro_update()
+        self.nk_update()
+        self.dc_update()
+        self.activated_endo_update()
+        self.epi_update()
+        #   set total-P/DAMPS sum [P/DAMPs] of patches
+        #   ;; need to calculate here, if calculate after diffuse/evaporate/cleanup there
+        #   is no value for threshold < 0.13
+        self.infected_epi_function()
+        self.diffuse_functions()
 
-        # grass
-        self.grow_grass()
+        # ;; this is to remove low levels of extracellular variables
+        # ask patches
+        #   [regrow-epis
+        #    set-background
+        #    evaporate ;; This order is important, if you put evaporate after cleanup you never get decent levels of cytokine
+        #    cleanup
+        #  ]
+        #
+        #
+        # end
 
-# # Original NetLogo readme
+    def create_epi(
+        self,
+        *,
+        position,
+        intracellular_virus,
+        viral_carrying_capacity,
+        resistance_to_infection,
+        cell_membrane,
+        apoptosis_counter,
+        apoptotis_threshold,
+        T1IFN,
+    ):
+        # TODO
+        pass
+
+
+# # Original NetLogo readme/comments
 # Name of model: Comparative Biology Immune ABM (CBIABM)
 #
 # Purpose: Simulate those aspects of innate immune response different between bats and humas. These areas are:
