@@ -1,6 +1,5 @@
-import itertools
 from enum import IntEnum
-from random import random, randint
+from typing import Optional, Tuple, Union
 
 import numpy as np
 from attr import define, field
@@ -34,10 +33,17 @@ class AnCockrellModel:
     MAX_ACTIVATED_ENDOS: int = field(default=10_000)
 
     macro_phago_recovery: float = field(default=0.5)
-    macro_phago_limit: int  = field(default=1_000)
+    macro_phago_limit: int = field(default=1_000)
+
+    inflammasome_activation_threshold: int = field(default=10)  # 50 for bats
 
     viral_carrying_capacity: int = field(default=500)
-    resistance_to_infection: int = field(default=75)
+    # resistance_to_infection: int = field(default=75)
+    susceptibility_to_infection: int = field(default=77)
+
+    apoptosis_eaten_counter: int = field(default=0, init=False)
+
+    ######################################################################
 
     epithelium: np.ndarray = field(init=False)
     extracellular_virus: np.ndarray = field(init=False)
@@ -59,22 +65,125 @@ class AnCockrellModel:
     IFNg: np.ndarray = field(init=False)
     T1IFN: np.ndarray = field(init=False)
 
-    grass: np.ndarray = field(init=False)
-    grass_clock: np.ndarray = field(init=False)
+    ######################################################################
 
-    num_wolves: int = field(init=False)
-    wolf_pos: np.ndarray = field(init=False)
-    wolf_dir: np.ndarray = field(init=False)
-    wolf_energy: np.ndarray = field(init=False)
-    wolf_alive: np.ndarray = field(init=False)
-    wolf_pointer: int = field(init=False)  # all indices >= this are not alive
+    pmn_pointer: int = 0
+    pmn_mask: np.ndarray = field(init=False)
+    pmn_locations: np.ndarray = field(init=False)
 
-    num_sheep: int = field(init=False)
-    sheep_pos: np.ndarray = field(init=False)
-    sheep_dir: np.ndarray = field(init=False)
-    sheep_energy: np.ndarray = field(init=False)
-    sheep_alive: np.ndarray = field(init=False)
-    sheep_pointer: int = field(init=False)  # all indices >= this are not alive
+    ######################################################################
+
+    num_macros: int = 0
+    macro_pointer: int = 0
+
+    macro_mask = field(type=np.ndarray)
+
+    @macro_mask.default
+    def _macro_mask_factory(self):
+        return np.zeros(self.MAX_MACROPHAGES, dtype=bool)
+
+    macro_locations = field(type=np.ndarray)
+
+    @macro_locations.default
+    def _macro_locations_factory(self):
+        return np.zeros((self.MAX_MACROPHAGES, 2), dtype=np.float64)
+
+    macro_dirs = field(type=np.ndarray)
+
+    @macro_dirs.default
+    def _macro_dirs_factory(self):
+        return np.zeros(self.MAX_MACROPHAGES, dtype=np.float64)
+
+    macro_internal_virus = field(type=np.ndarray)
+
+    @macro_internal_virus.default
+    def _macro_internal_virus_factory(self):
+        return np.zeros(self.MAX_MACROPHAGES, dtype=np.float64)
+
+    macro_activation = field(type=np.ndarray)
+
+    @macro_activation.default
+    def _macro_activation_factory(self):
+        return np.zeros(self.MAX_MACROPHAGES, dtype=np.float64)
+
+    macro_infected = field(type=np.ndarray)
+
+    @macro_infected.default
+    def _macro_infected_factory(self):
+        return np.zeros(self.MAX_MACROPHAGES, dtype=bool)
+
+    macro_cells_eaten = field(type=np.ndarray)
+
+    @macro_cells_eaten.default
+    def _macro_cells_eaten_factory(self):
+        return np.zeros(self.MAX_MACROPHAGES, dtype=np.int64)
+
+    macro_virus_eaten = field(type=np.ndarray)
+
+    @macro_virus_eaten.default
+    def _macro_virus_eaten_factory(self):
+        return np.zeros(self.MAX_MACROPHAGES, dtype=np.int64)
+
+    macro_pre_il1 = field(type=np.ndarray)
+
+    @macro_pre_il1.default
+    def _macro_pre_il1_factory(self):
+        return np.zeros(self.MAX_MACROPHAGES, dtype=np.float64)
+
+    macro_pre_il18 = field(type=np.ndarray)
+
+    @macro_pre_il18.default
+    def _macro_pre_il18_factory(self):
+        return np.zeros(self.MAX_MACROPHAGES, dtype=np.float64)
+
+    macro_pyroptosis_counter = field(type=np.ndarray)
+
+    @macro_pyroptosis_counter.default
+    def _macro_pyroptosis_counter_factory(self):
+        return np.zeros(self.MAX_MACROPHAGES, dtype=np.float64)
+
+    macro_inflammasome_primed = field(type=np.ndarray)
+
+    @macro_inflammasome_primed.default
+    def _macro_inflammasome_primed_factory(self):
+        return np.zeros(self.MAX_MACROPHAGES, dtype=bool)
+
+    macro_inflammasome_active = field(type=np.ndarray)
+
+    @macro_inflammasome_active.default
+    def _macro_inflammasome_active_factory(self):
+        return np.zeros(self.MAX_MACROPHAGES, dtype=bool)
+
+    ######################################################################
+
+    num_nks: int = 0
+    nk_pointer: int = 0
+
+    nk_mask = field(type=np.ndarray)
+
+    @nk_mask.default
+    def _nk_mask_factory(self):
+        return np.zeros(self.MAX_NKS, dtype=bool)
+
+    nk_locations = field(type=np.ndarray)
+
+    @nk_locations.default
+    def _nk_locations_factory(self):
+        return np.zeros((self.MAX_NKS, 2), dtype=np.float64)
+
+    nk_dirs = field(type=np.ndarray)
+
+    @nk_dirs.default
+    def _nk_dirs_factory(self):
+        return np.zeros(self.MAX_NKS, dtype=np.float64)
+
+    nk_age = field(type=np.ndarray)
+
+    @nk_age.default
+    def _nk_age_factory(self):
+        return np.zeros(self.MAX_NKS, dtype=np.int64)
+
+    ######################################################################
 
     @property
     def total_T1IFN(self) -> float:
@@ -120,44 +229,54 @@ class AnCockrellModel:
     def total_intracellular_virus(self) -> float:
         return float(np.sum(self.epi_intracellular_virus))
 
+    @property
+    def geometry(self):
+        return self.GRID_HEIGHT, self.GRID_WIDTH
+
     # self.system_health =  count epis / 2601 * 100
 
     def __attrs_post_init__(self):
         self.num_epis = 0
-        self.epi_pointer = 0
-        self.epi_mask = np.zeros(self.MAX_EPIS, dtype=bool)
-        self.epi_type = np.zeros(self.MAX_EPIS, dtype=np.int8)
-        self.epi_pos = np.zeros((self.MAX_EPIS, 2), dtype=np.float64)
-        self.epi_infected = np.zeros(self.MAX_EPIS, dtype=bool)
-        self.epi_intracellular_virus = np.zeros(self.MAX_EPIS, dtype=np.float64)
-        self.epi_viral_carrying_capacity = np.zeros(self.MAX_EPIS, dtype=np.float64)
-        self.epi_resistance_to_infection = np.zeros(self.MAX_EPIS, dtype=np.float64)
-        self.epi_replication_counter = np.zeros(self.MAX_EPIS, dtype=np.float64)
-        self.epi_cell_membrane = np.zeros(self.MAX_EPIS, dtype=np.float64)
-        self.epi_apoptosis_counter = np.zeros(self.MAX_EPIS, dtype=np.float64)
-        self.epi_apoptosis_threshold = np.zeros(self.MAX_EPIS, dtype=np.float64)
-        self.epi_ros_damage_counter = np.zeros(self.MAX_EPIS, dtype=np.float64)
-        self.epi_pre_il1 = np.zeros(self.MAX_EPIS, dtype=np.float64)
-        self.epi_pre_il18 = np.zeros(self.MAX_EPIS, dtype=np.float64)
-        self.epi_inflammasome_primed = np.zeros(self.MAX_EPIS, dtype=np.float64)
-        self.epi_inflammasome_active = np.zeros(self.MAX_EPIS, dtype=np.float64)
+        geom = self.geometry
+        self.epi_mask = np.zeros(geom, dtype=bool)
+        self.epi_type = np.zeros(geom, dtype=np.int8)
+        self.epi_pos = np.zeros((geom, 2), dtype=np.float64)
+        self.epi_infected = np.zeros(geom, dtype=bool)
+        self.epi_intracellular_virus = np.zeros(geom, dtype=np.float64)
+        self.epi_viral_carrying_capacity = np.zeros(geom, dtype=np.float64)
+        self.epi_resistance_to_infection = np.zeros(geom, dtype=np.float64)
+        self.epi_replication_counter = np.zeros(geom, dtype=np.float64)
+        self.epi_cell_membrane = np.zeros(geom, dtype=np.float64)
+        self.epi_apoptosis_counter = np.zeros(geom, dtype=np.float64)
+        self.epi_apoptosis_threshold = np.zeros(geom, dtype=np.float64)
+        self.epi_ros_damage_counter = np.zeros(geom, dtype=np.float64)
+        self.epi_pre_il1 = np.zeros(geom, dtype=np.float64)
+        self.epi_pre_il18 = np.zeros(geom, dtype=np.float64)
+        self.epi_inflammasome_primed = np.zeros(geom, dtype=np.float64)
+        self.epi_inflammasome_active = np.zeros(geom, dtype=np.float64)
 
         self.num_pmns = 0
         self.pmn_pointer = 0
         self.pmn_mask = np.zeros(self.MAX_PMNS, dtype=bool)
         self.pmn_locations = np.zeros((self.MAX_PMNS, 2), dtype=np.float64)
+        self.pmn_dirs = np.zeros(self.MAX_PMNS, dtype=np.float64)
         self.pmn_age = np.zeros(self.MAX_PMNS, dtype=np.int64)
+
         #
         #   ;; dc specific variables NOT CURRENTLY ACTIVE in V2.0
-        #   dc-location ;; this is a chooser with either "LymphNode" or "tissue". If "tissue" then interact with screen, If "LN" then interact with NaiveCD8s off screen
-        #   trafficking-counter ;; Trafficking is simulated by jump to on-of NaiveCD8s, then Trafficking-counter upticks until engagement => initial approximation = 6 hours = 36 ticks
+        #   dc-location ;; this is a chooser with either "LymphNode" or "tissue". If "tissue" then interact with
+        #                  screen, If "LN" then interact with NaiveCD8s off screen
+        #   trafficking-counter ;; Trafficking is simulated by jump to on-of NaiveCD8s, then Trafficking-counter
+        #                          upticks until engagement => initial approximation = 6 hours = 36 ticks
         #   antigen? ;; this is antigen picked up by DC when encounters infected epi, initiates trafficking
         #
         #   ;; macro specific variables
         #   macro-activation-level
-        #   macro-phago-limit ;; this is the maximal amount a macrophage can phagocytose, initially arbitrarily set at 1000, all macros get full, increase to 10,000 to see what happens
+        #   macro-phago-limit ;; this is the maximal amount a macrophage can phagocytose, initially arbitrarily set
+        #                        at 1000, all macros get full, increase to 10,000 to see what happens
         #   macro-phago-counter ;; this keeps track of how "full" macro is = cells-eaten + (virus-eaten / 10)
-        #   pyroptosis-counter ;; counts how long it takes activated inflammasome to produce pyroptosis => 120 minutes per Community Development Paper
+        #   pyroptosis-counter ;; counts how long it takes activated inflammasome to produce pyroptosis => 120 minutes
+        #                         per Community Development Paper
         #   virus-eaten
         #   cells-eaten
         #
@@ -165,38 +284,25 @@ class AnCockrellModel:
         #   ;; activated-endo specific variables
         #   adhesion-counter ;; PMN adhesion-migration takes 6-12 hours; 36 ticks = 6 hours
 
-        MAX_LYMPHNODES: int = field(default=10_000)
-        MAX_PMNS: int = field(default=10_000)
-        MAX_DCS: int = field(default=10_000)
-        MAX_MACROPHAGES: int = field(default=10_000)
-        MAX_NKS: int = field(default=10_000)
-        MAX_ACTIVATED_ENDOS: int = field(default=10_000)
-
         # spatial quantities
-        self.extracellular_virus = np.zeros(
-            (self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int32
-        )
-        self.epi_regrow_counter = np.zeros(
-            (self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int32
-        )
-        self.endothelial_activation = np.zeros(
-            (self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int32
-        )
-        self.P_DAMPS = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.ROS = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.PAF = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.TNF = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.IL1 = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.IL18 = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.IL2 = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.IL4 = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.IL6 = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.IL8 = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.IL10 = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.IL12 = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.IL17 = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.IFNg = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
-        self.T1IFN = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.float64)
+        self.extracellular_virus = np.zeros(geom, dtype=np.int32)
+        self.epi_regrow_counter = np.zeros(geom, dtype=np.int32)
+        self.endothelial_activation = np.zeros(geom, dtype=np.int32)
+        self.P_DAMPS = np.zeros(geom, dtype=np.float64)
+        self.ROS = np.zeros(geom, dtype=np.float64)
+        self.PAF = np.zeros(geom, dtype=np.float64)
+        self.TNF = np.zeros(geom, dtype=np.float64)
+        self.IL1 = np.zeros(geom, dtype=np.float64)
+        self.IL18 = np.zeros(geom, dtype=np.float64)
+        self.IL2 = np.zeros(geom, dtype=np.float64)
+        self.IL4 = np.zeros(geom, dtype=np.float64)
+        self.IL6 = np.zeros(geom, dtype=np.float64)
+        self.IL8 = np.zeros(geom, dtype=np.float64)
+        self.IL10 = np.zeros(geom, dtype=np.float64)
+        self.IL12 = np.zeros(geom, dtype=np.float64)
+        self.IL17 = np.zeros(geom, dtype=np.float64)
+        self.IFNg = np.zeros(geom, dtype=np.float64)
+        self.T1IFN = np.zeros(geom, dtype=np.float64)
 
         #   ask patches
         #   [sprout 1
@@ -204,25 +310,35 @@ class AnCockrellModel:
         #      set shape "square"
         #      set color blue
         #      set intracellular-virus 0
-        #      set viral-carrying-capacity 500 ;;  arbitrary, maybe make slider. Lower numbers kill but don't spread, defines incubation time
+        #      set viral-carrying-capacity 500 ;; arbitrary, maybe make slider. Lower numbers kill but don't spread,
+        #                                         defines incubation time
         #      set resistance-to-infection 75 ;; arbitrary, maybe make slider
-        #      set cell-membrane 975 + random 51 ;; this is what is consumed by viral excytosis, includes some random component so all cells don't die at the same time
+        #      set cell-membrane 975 + random 51 ;; this is what is consumed by viral excytosis, includes some random
+        #                                           component so all cells don't die at the same time
         #      set apoptosis-counter 0
-        #      set apoptosis-threshold 450 + random 100 ;; this is half the cell-membrane, which means total amount of leaked virus should be half with apoptosis active, has random component as well
+        #      set apoptosis-threshold 450 + random 100 ;; this is half the cell-membrane, which means total amount of
+        #                                                  leaked virus should be half with apoptosis active, has
+        #                                                  random component as well
         #      if bat? = true ;; help initialize baseline level production of T1IFN in bats
         #        [if random 100 = 1
         #         [set T1IFN 5]
         #       ]
         #     ]
         #   ]
-        self.epithelium = np.full((self.GRID_WIDTH, self.GRID_HEIGHT), EpiType.Healthy, dtype=np.int64)
-        self.epithelium_intracellular_virus = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int64)
-        self.epithelium_cell_membrane = 95 + (51*np.random.rand((self.GRID_WIDTH, self.GRID_HEIGHT))).asdtype(np.int64)
-        self.epithelium_apoptosis_counter = np.zeros((self.GRID_WIDTH, self.GRID_HEIGHT), dtype=np.int64)
-        self.epithelium_apoptosis_threshold = 450 + (100*np.random.rand((self.GRID_WIDTH, self.GRID_HEIGHT))).asdtype(np.int64)
+        self.epithelium = np.full(geom, EpiType.Healthy, dtype=np.int64)
+        self.epithelium_intracellular_virus = np.zeros(geom, dtype=np.int64)
+        # noinspection PyUnresolvedReferences
+        self.epithelium_cell_membrane = (95 + 51 * np.random.rand(*geom)).asdtype(
+            np.int64
+        )
+        self.epithelium_apoptosis_counter = np.zeros(geom, dtype=np.int64)
+        # noinspection PyUnresolvedReferences
+        self.epithelium_apoptosis_threshold = (
+                450 + 100 * np.random.rand(*geom)
+        ).asdtype(np.int64)
 
         if self.BAT:
-            self.T1IFN[:,:] = 5*(np.random.rand((self.GRID_WIDTH, self.GRID_HEIGHT)) < 0.01)
+            self.T1IFN[:, :] = 5 * (np.random.rand(*geom) < 0.01)
 
         #  create-NKs 25 ;; Initial-NKs slider for later
         #   [set color orange
@@ -231,8 +347,7 @@ class AnCockrellModel:
         #     repeat 100
         #     [jump random 1000]
         #   ]
-        for _ in range(self.INIT_NKS):
-            self.create_nk()
+        self.create_nk(number=self.INIT_NKS)
 
         #  create-Macros 50 ;;Initial-Macros slider for later
         #   [set color green
@@ -240,7 +355,7 @@ class AnCockrellModel:
         #     set size 1
         #     repeat 100
         #     [jump random 1000]
-        #     set macro-phago-limit 1000 ;; aribitrary number
+        #     set macro-phago-limit 1000 ;; arbitrary number
         #     set color green
         #     set pre-IL1 0
         #     set pre-IL18 0
@@ -328,15 +443,21 @@ class AnCockrellModel:
     def virus_invade_cell(self):
         pass
         # to virus-invade-cell ;; called in epi-function and macro-function
-        # ;; what I want here is to have the likelyhood of invasion of the epi on the patch be a function of the number of extracellular-viruses on that patch
+        # ;; what I want here is to have the likelihood of invasion of the epi on the patch be a function of the
+        #    number of extracellular-viruses on that patch
         # ;; Epi has resistance-to-invasion, higher numbers better to protect against invasion
-        # ;; As currently written, lowering resistance to infection results in smaller initial intracellular virus, prolonging incubation,
+        # ;; As currently written, lowering resistance to infection results in smaller initial intracellular virus,
+        #    prolonging incubation,
         # ;; can affect by altering viral-incubation-rate (slider)
         # ;if random extracellular-virus > resistance-to-infection ;; if this is true then the virus invades
         # if extracellular-virus > 0
-        # [ if random 100 < (max list susceptability-to-infection extracellular-virus) ;; this is a new virus invade criteria, says a % chance infection against higher of resistance or virus present
-        #   ; so if very high extracellular virus then likely to invade, if very low extracellular virus still possibility it will invade. High values susceptability = worse
-        #   ; if suceptability = 0 should have full resistance
+        # [ if random 100 < (max list susceptibility-to-infection extracellular-virus) ;; this is a new virus invade
+        #                                                                                 criteria, says a % chance
+        #                                                                                 infection against higher of
+        #                                                                                 resistance or virus present
+        #   ; so if very high extracellular virus then likely to invade, if very low extracellular virus still
+        #     possibility it will invade. High values susceptibility = worse
+        #   ; if susceptibility = 0 should have full resistance
         #   [set intracellular-virus intracellular-virus + 1
         #    set extracellular-virus extracellular-virus - 1 ;; virus from outside goes inside
         #    if breed = epis
@@ -356,7 +477,8 @@ class AnCockrellModel:
     def virus_replicate(self):
         pass
         # to virus-replicate ;; called in infected-epi-function
-        #   ;; extrusion of virus will consume cell-membrane, when this goes to 0 cell dies (no viral burst but does produce P/DAMPS)
+        #   ;; extrusion of virus will consume cell-membrane, when this goes to 0 cell dies (no viral burst but does
+        #      produce P/DAMPS)
         #
         # if cell-membrane <= 0
         #   [set breed dead-epis
@@ -375,14 +497,17 @@ class AnCockrellModel:
         #   ]
         #
         # ifelse bat? = true
-        #   [set intracellular-virus max list 1 (intracellular-virus + 1 - (T1IFN / 10 ))];;  simulates T1IFN anti viral adaptations in bats,
-        #                                                                                ;;  does not eradicate virus though, just suppresses growth
-        #   [set intracellular-virus max list 0 (intracellular-virus + 1 - (T1IFN / 100))] ;; human manifestation of T1IFN anti viral effect
+        #   [set intracellular-virus max list 1 (intracellular-virus + 1 - (T1IFN / 10 ))];; simulates T1IFN anti viral
+        #                                                                                    adaptations in bats,
+        #                                                                                ;; does not eradicate virus
+        #                                                                                   though, just suppresses
+        #                                                                                   growth
+        #   [set intracellular-virus max list 0 (intracellular-virus + 1 - (T1IFN / 100))] ;; human manifestation of
+        #                                                                                     T1IFN anti viral effect
         #
         # end
 
     def epi_apoptosis(self):
-        pass
         # to epi-apoptosis
         #   if apoptosis-counter > apoptosis-threshold
         #    [set breed apoptosed-epis
@@ -390,32 +515,83 @@ class AnCockrellModel:
         #     set shape "pentagon"
         #     set size 1
         #   ]
+        infected_epi_mask = self.epi_type == EpiType.Infected
+        epis_to_apoptose_mask = infected_epi_mask & (
+                self.epi_apoptosis_counter > self.epithelium_apoptosis_threshold
+        )
+        self.epi_type[epis_to_apoptose_mask] = EpiType.Apoptosed
+
         #   set apoptosis-counter apoptosis-counter + 1
+        self.epi_apoptosis_counter[infected_epi_mask] += 1
+
         # end
 
     def regrow_epis(self):
-        pass
         # to regrow-epis ;; patch command, regrows epis on empty patches if neighbors > 2 epis.
-        # if count epis-here + count dead-epis-here + count apoptosed-epis-here + extracellular-virus = 0 ;; makes sure it is an patch empty of epis
+        # if count epis-here + count dead-epis-here + count apoptosed-epis-here + extracellular-virus = 0 ;; makes sure
+        #                                                                                                    it is an
+        #                                                                                                    patch empty
+        #                                                                                                    of epis
+
+        empty_patches = (self.epi_type == EpiType.Empty) & (
+                self.extracellular_virus == 0
+        )
+
+        epi_patches = self.epi_type == EpiType.Healthy
+        epi_neighbors = (
+                np.roll(epi_patches, 1, axis=0)
+                + np.roll(epi_patches, -1, axis=0)
+                + np.roll(epi_patches, 1, axis=1)
+                + np.roll(epi_patches, -1, axis=1)
+                + np.roll(np.roll(epi_patches, 1, axis=0), 1, axis=1)
+                + np.roll(np.roll(epi_patches, 1, axis=0), -1, axis=1)
+                + np.roll(np.roll(epi_patches, -1, axis=0), 1, axis=1)
+                + np.roll(np.roll(epi_patches, -1, axis=0), -1, axis=1)
+        )
+
+        regrowth_candidate_patches = empty_patches & (epi_neighbors > 2)
+
         #  [if count epis-on neighbors > 2 ;; if conditions met, start counter
         #     [if epi-regrow-counter >= 432 ;; regrows starting at 3 days if sufficient neighboring epis
+
+        regrowth_patches = regrowth_candidate_patches & (self.epi_regrow_counter > 432)
+
         #      [sprout 1
         #        [set breed epis ;; 1 epi per patch
         #         set shape "square"
         #         set color blue
         #         set intracellular-virus 0
         #         set resistance-to-infection 75 ;; arbitrary, maybe make slider
-        #         set cell-membrane 975 + random 51 ;; this is what is consumed by viral excytosis, includes some random component so all cells don't die at the same time
+        #         set cell-membrane 975 + random 51 ;; this is what is consumed by viral excytosis, includes some
+        #                                              random component so all cells don't die at the same time
         #         set apoptosis-counter 0
-        #         set apoptosis-threshold 475 + random 51 ;; this is half the cell-membrane, which means total amount of leaked virus should be half with apoptosis active, has random component as well
+        #         set apoptosis-threshold 475 + random 51 ;; this is half the cell-membrane, which means total amount of
+        #                                                    leaked virus should be half with apoptosis active, has
+        #                                                    random component as well
         #        ]
         #       set epi-regrow-counter 0 ; if sprouts, reset counter to 0
+
+        self.epi_intracellular_virus[regrowth_patches] = 0
+        self.epi_resistance_to_infection[regrowth_patches] = 75
+        self.epi_cell_membrane[regrowth_patches] = np.random.randint(
+            975, 975 + 51, size=np.sum(regrowth_patches)
+        )
+        self.epi_apoptosis_counter[regrowth_patches] = 0
+        self.epi_apoptosis_threshold[regrowth_patches] = np.random.randint(
+            475, 475 + 51, size=np.sum(regrowth_patches)
+        )
+        self.epi_regrow_counter[regrowth_patches] = 0
+
         #      ]
+
         #     set epi-regrow-counter epi-regrow-counter + 1 ;; counts if enough neighbors
         #     ]
         #   ]
-        #
-        #
+        non_regrowth_patches = regrowth_candidate_patches & (
+                self.epi_regrow_counter <= 432
+        )
+        self.epi_regrow_counter[non_regrowth_patches] += 1
+
         # end
 
     def dead_epi_update(self):
@@ -446,17 +622,18 @@ class AnCockrellModel:
         #   ifelse [PAF + IL8] of p > (PAF + IL8) and [PAF + IL8] of p != 0
         #   [face p
         #    fd 0.1
-        #    if count PMNs-here > 1 ;; This code block is to prevent stacking of macros on a single patch. IF there is a stack then they kill the infected more quickly
+        #    if count PMNs-here > 1 ;; This code block is to prevent stacking of macros on a single patch. IF there is
+        #                              a stack then they kill the infected more quickly
         #     [set heading random 360
         #       fd 1]
         #   ]
         chemoattractant = self.PAF + self.IL8
         chemoattractant_dx = (
-            np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
-        ) / 2.0
+                                     np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
+                             ) / 2.0
         chemoattractant_dy = (
-            np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
-        ) / 2.0
+                                     np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
+                             ) / 2.0
         locations = self.pmn_locations[self.pmn_mask].astype(np.int64)
         vecs = np.stack(
             [
@@ -473,14 +650,14 @@ class AnCockrellModel:
         #   [wiggle
         #   ]
         self.pmn_dirs += (
-            (np.random.rand(self.MAX_PMNS) - np.random.rand(self.MAX_PMNS))
-            * np.pi
-            / 4.0
+                (np.random.rand(self.MAX_PMNS) - np.random.rand(self.MAX_PMNS))
+                * np.pi
+                / 4.0
         )
         directions = np.stack([np.cos(self.pmn_dirs), np.sin(self.pmn_dirs)], axis=1)
         self.pmn_locations += directions
         self.pmn_locations = np.mod(
-            self.pmn_locations, [self.GRID_WIDTH, self.GRID_HEIGHT]
+            self.pmn_locations, [self.GRID_HEIGHT, self.GRID_WIDTH]
         )
 
         #  set age age + 1
@@ -489,33 +666,80 @@ class AnCockrellModel:
         # end
 
     def nk_update(self):
-        pass
         # to NK-function
         #
         #   ;; INDUCTION OF APOPTOSIS
         # ask infected-epis-here
         #  [set apoptosis-counter apoptosis-counter + 9]  ;; NKs enhance infected epi apoptosis 10x
-        #
+        locations = self.nk_locations[self.nk_mask].astype(np.int64)
+        nk_at_infected_epi_mask = self.epi_type[tuple(locations.T)] == EpiType.Infected
+        self.epi_apoptosis_counter[tuple(locations[nk_at_infected_epi_mask].T)] += 9
+
         #   ;;Production of cytokines
         # if T1IFN > 0 and IL12 > 0 and IL18 > 0
         #   [set IFNg IFNg + 1] ;; need to check this, apparently does not happen, needs IL18(?)
-        #
+        cytokine_production_mask = (
+                (self.T1IFN[tuple(locations.T)] > 0)
+                & (self.IL12[tuple(locations.T)] > 0)
+                & (self.IL18[tuple(locations.T)] > 0)
+        )
+        cytokine_production_locations = self.nk_locations[self.nk_mask][
+            cytokine_production_mask
+        ]
+        self.IFNg[tuple(cytokine_production_locations.T)] += 1
+
         #   ;; Chemotaxis to T1IFN made by infected-epis, slows movement rate to 1/10 of uphill primitive
         # let p max-one-of neighbors [T1IFN]  ;; or neighbors4
         #   ifelse [T1IFN] of p > T1IFN and [T1IFN] of p != 0
         #   [face p
         # ;;    if [count NKs] of patch-ahead 1 < 5
         #    fd 0.1
-        #    if count NKs-here > 1 ;; This code block is to prevent stacking of NK cells on a single patch. IF there is a stack then they kill the infected more quickly
+        #    if count NKs-here > 1 ;; This code block is to prevent stacking of NK cells on a single patch. IF there is
+        #                             a stack then they kill the infected more quickly
         #     [set heading random 360
         #       fd 1]
         #   ]
+        chemoattractant = self.T1IFN
+        chemoattractant_dx = (
+                                     np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
+                             ) / 2.0
+        chemoattractant_dy = (
+                                     np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
+                             ) / 2.0
+        locations = self.nk_locations[self.nk_mask].astype(np.int64)
+        vecs = np.stack(
+            [
+                chemoattractant_dx[tuple(locations.T)],
+                chemoattractant_dy[tuple(locations.T)],
+            ],
+            axis=1,
+        )
+        norms = np.linalg.norm(vecs, axis=-1)
+        norms[norms <= 1e-8] = 1.0  # effectively zero norm vectors will be unnormalized
+        self.nk_locations[self.nk_mask] += 0.1 * vecs / norms
+        self.nk_dirs[self.nk_mask] = np.arctan2(vecs[:, 1], vecs[:, 0])
+
         #   [wiggle
         #   ]
-        #
+        self.nk_dirs += (
+                (np.random.rand(self.MAX_NKS) - np.random.rand(self.MAX_NKS)) * np.pi / 4.0
+        )
+        directions = np.stack([np.cos(self.nk_dirs), np.sin(self.nk_dirs)], axis=1)
+        self.nk_locations += directions
+        self.nk_locations = np.mod(
+            self.nk_locations, [self.GRID_HEIGHT, self.GRID_WIDTH]
+        )
+
+        # TODO: unstack
+
         #   ;consumption IL18 and IL12
         # set IL12 max list 0 IL12 - 0.1
         # set IL18 max list 0 IL18 - 0.1
+
+        locations = self.nk_locations[self.nk_mask].astype(np.int64)
+        self.IL12[tuple(locations.T)] -= np.minimum(0.1, self.IL12[tuple(locations.T)])
+        self.IL18[tuple(locations.T)] -= np.minimum(0.1, self.IL18[tuple(locations.T)])
+
         # end
 
     def macro_update(self):
@@ -526,24 +750,25 @@ class AnCockrellModel:
         mask = self.macro_mask
         locations = self.macro_locations[mask].astype(np.int64)
         extracellular_virus_at_locations = self.extracellular_virus[tuple(locations.T)]
-        cells_to_invade = (
-            np.random.rand(extracellular_virus_at_locations.shape)
-            * extracellular_virus_at_locations
-            > self.macro_resistance_to_infection
-        )
+        cells_to_invade = 100 * np.random.rand(
+            *extracellular_virus_at_locations.shape
+        ) < np.max(self.susceptibility_to_infection, extracellular_virus_at_locations)
         self.macro_internal_virus[mask][cells_to_invade] += 1
         self.extracellular_virus[tuple(locations[cells_to_invade].T)] -= 1
         self.macro_infected[mask][cells_to_invade] = True
 
         #   ; macro-activation-level keeps track of M1 (pro) or M2 (anti) status
         #   ; there is hysteresis because it modifies existing status
-        # set macro-activation-level macro-activation-level + T1IFN + P/DAMPS + IFNg + IL1 - (2 * IL10) ;; currently a gap between pro and anti macros
-        self.macro_activation[mask] = (
-            self.T1IFN[tuple(locations.T)]
-            + self.P_DAMPS[tuple(locations.T)]
-            + self.IFNg[tuple(locations.T)]
-            + self.IL1
-            - 2 * self.IL10[tuple(locations.T)]
+        # set macro-activation-level macro-activation-level + T1IFN + P/DAMPS + IFNg + IL1 - (2 * IL10) ;; currently a
+        #                                                                                                  gap between
+        #                                                                                                  pro and anti
+        #                                                                                                  macros
+        self.macro_activation[mask] += (
+                self.T1IFN[tuple(locations.T)]
+                + self.P_DAMPS[tuple(locations.T)]
+                + self.IFNg[tuple(locations.T)]
+                + self.IL1
+                - 2 * self.IL10[tuple(locations.T)]
         )
 
         #   ;; separate out inflammasome mediated functions from other pro macro functions
@@ -551,35 +776,7 @@ class AnCockrellModel:
         #   ;; as with all sequential processes, inflammasome priming/activation/effects coded in reverse order
         # inflammasome-function
 
-        # to inflammasome-function
-        #  ;; inflammasome effects
-        #
-        #   if pyroptosis-counter > 12  ;; 120 minutes
-        #   [pyroptosis]
-        #
-        #   if inflammasome-active = true ;; this is coded this way to draw out the release of IL1 and IL18 (make less jumpy)
-        #     [set IL1 Il1 + 1
-        #      set pre-IL1 pre-IL1 + 5 ;; this means pre-IL1 will be 12 at time of burst, which is IL1 level at burst
-        #      set IL18 IL18 + 1
-        #      set pre-IL18 pre-IL18 + 0.5 ;; mimic IL1 at the moment, half amount generated though (arbitrary)
-        #      set pyroptosis-counter pyroptosis-counter + 1] ;; Pyroptosis takes 120 min from inflammasome activation to pyroptosis so counter threshold is 12
-        #
-        #   ;; stage 2 = activation of inflammasome => use virus-eaten as proxy for intracellular viral products, effects of phagocytosis
-        #   if inflammasome-primed = true
-        #    [if virus-eaten / 10 > inflammasome-activation-threshold ;; extra-, intra- and eaten virus in the scale of up to 100
-        #                                                           ;; macro-phago-limit set to 1000 (with virus-eaten / 10), activation thresholds ~ 50
-        #     [set inflammasome-active true
-        #      set shape "target"
-        #      set size 1.5
-        #     ]
-        #   ]
-        #
-        #   ;; stage 1 = Priming by P/DAMPS or TNF
-        #   if P/DAMPS + TNF > inflammasome-priming-threshold
-        #   [set inflammasome-primed true]
-        # ;;  [set inflammasome "inactive"]
-        #
-        # end
+        self.inflammasome_function()
 
         #   ;; consumption of activating cytokines
         # set T1IFN max list 0 T1IFN - 0.1
@@ -599,23 +796,25 @@ class AnCockrellModel:
             0.0, self.IL1[tuple(locations.T)] - 0.1
         )
 
-        #   ;; Chemotaxis to T1IFN made by infected-epis, slows movement rate to 1/10 of uphill primitive. Also chemotaxis to DAMPs
+        #   ;; Chemotaxis to T1IFN made by infected-epis, slows movement rate to 1/10 of uphill primitive. Also
+        #      chemotaxis to DAMPs
         # let p max-one-of neighbors [T1IFN + P/DAMPS]  ;; or neighbors4
         #   ifelse [T1IFN + P/DAMPS] of p > (T1IFN + P/DAMPS) and [T1IFN + P/DAMPS] of p != 0
         #   [face p
         # ;;    if [count NKs] of patch-ahead 1 < 5
         #    fd 0.1
-        #    if count Macros-here > 1 ;; This code block is to prevent stacking of macros on a single patch. IF there is a stack then they kill the infected more quickly
+        #    if count Macros-here > 1 ;; This code block is to prevent stacking of macros on a single patch. IF there is
+        #                                a stack then they kill the infected more quickly
         #     [set heading random 360
         #       fd 1]
         #   ]
         chemoattractant = self.T1IFN + self.P_DAMPS
         chemoattractant_dx = (
-            np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
-        ) / 2.0
+                                     np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
+                             ) / 2.0
         chemoattractant_dy = (
-            np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
-        ) / 2.0
+                                     np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
+                             ) / 2.0
         locations = self.macro_locations[self.macro_mask].astype(np.int64)
         vecs = np.stack(
             [
@@ -632,12 +831,12 @@ class AnCockrellModel:
         #   [wiggle
         #   ]
         self.macro_dirs += (
-            (
-                np.random.rand(self.MAX_MACROPHAGES)
-                - np.random.rand(self.MAX_MACROPHAGES)
-            )
-            * np.pi
-            / 4.0
+                (
+                        np.random.rand(self.MAX_MACROPHAGES)
+                        - np.random.rand(self.MAX_MACROPHAGES)
+                )
+                * np.pi
+                / 4.0
         )
         self.macro_locations += np.stack(
             [np.cos(self.macro_dirs), np.sin(self.macro_dirs)], axis=1
@@ -645,6 +844,8 @@ class AnCockrellModel:
         self.macro_locations = np.mod(
             self.macro_locations, [self.GRID_WIDTH, self.GRID_HEIGHT]
         )
+
+        # TODO: unstack
 
         #     ;;PHAGOCYTOSIS LIMIT check
         #   ;; check for macro-phago-limit
@@ -659,7 +860,9 @@ class AnCockrellModel:
             - self.macro_phago_recovery,
         )
         under_limit_mask = macro_phago_counter < self.macro_phago_limit
-        locations = self.macro_locations[self.macro_mask][under_limit_mask].astype(np.int64)
+        locations = self.macro_locations[self.macro_mask][under_limit_mask].astype(
+            np.int64
+        )
 
         #   ifelse macro-phago-counter >= macro-phago-limit ;; this will eventually be pyroptosis
         #     [set size 2]
@@ -699,10 +902,12 @@ class AnCockrellModel:
         self.macro_cells_eaten[self.macro_mask][dead_epis] += 1
         self.epithelium[tuple(locations[dead_epis].T)] = EpiType.Empty
 
-        # if macro-activation-level > 5 ;; This is where decreased sensativity to P/DAMPS can be seen. Link macro-activation-level to Inflammasome variable?
+        # if macro-activation-level > 5 ;; This is where decreased sensitivity to P/DAMPS can be seen. Link
+        #                                  macro-activation-level to Inflammasome variable?
         #                               ;; increased from 1.1 to 5 for V1.1
         #  [;; Proinflammatory cytokine production
-        #   if IL1 + P/DAMPS > 0 ;; these are downstream products of NFkB, which either requires infammasome activation or TLR signaling
+        #   if IL1 + P/DAMPS > 0 ;; these are downstream products of NFkB, which either requires infammasome activation
+        #                           or TLR signaling
         #     [set TNF TNF + 1
         #      set IL6 IL6 + 0.4 ;; split with DCs and infected-epis, dependent on IL1
         #  ;; set IL1 IL1 + 1 => Moved to Inflammasome function
@@ -712,50 +917,97 @@ class AnCockrellModel:
         #   set IL8 IL8 + 1 ;; believe this is NFkB independent
         #   set IL12 IL12 + 0.5 ;; split with DCs Don't know if this is based on NFkB activation
         #
-        #   set macro-activation-level macro-activation-level - 5 ;; this is to simulate macrophages returning to baseline as intracellular factors lose stimulation
+        #   set macro-activation-level macro-activation-level - 5 ;; this is to simulate macrophages returning to
+        #                                                            baseline as intracellular factors lose stimulation
         #  ]
 
-        activated_macros = self.macro_mask & (self.macro_activation_level > 5)
-
-
+        activated_macros = self.macro_mask & (self.macro_activation > 5)
+        locations = self.macro_locations[activated_macros].astype(np.int64)
+        self.IL8[tuple(locations.T)] += 1.0
+        self.IL12[tuple(locations.T)] += 1.0
+        downstream_mask = (
+                self.IL1[tuple(locations.T)] + self.P_DAMPS[tuple(locations.T)] > 0
+        )
+        downstream_locations = self.macro_locations[activated_macros][downstream_mask]
+        self.TNF[tuple(downstream_locations.T)] += 1
+        self.IL6[tuple(downstream_locations.T)] += 1
+        self.IL10[tuple(downstream_locations.T)] += 1
+        self.macro_activation[activated_macros] -= 5
 
         # if macro-activation-level < -5 ;; this keeps macros from self activating wrt IL10 in perpetuity
         #   [set color pink ;; tracker
         #   ;; Antiinflammatory cytokine production
         #   set IL10 IL10 + 0.5
         #
-        #   set macro-activation-level macro-activation-level + 5 ;; this is to simulate macrophages returning to baseline as intracellular factors lose stimulation
+        #   set macro-activation-level macro-activation-level + 5 ;; this is to simulate macrophages returning to
+        #                                                            baseline as intracellular factors lose stimulation
         #   ]
+
+        low_activated_macros = self.macro_mask & (self.macro_activation < -5)
+        locations = self.macro_locations[low_activated_macros].astype(np.int64)
+        self.IL10[tuple(locations.T)] += 0.5
+        self.macro_activation[low_activated_macros] += 5
+
         # end
 
     def inflammasome_function(self):
-        pass
         # to inflammasome-function
         #  ;; inflammasome effects
         #
         #   if pyroptosis-counter > 12  ;; 120 minutes
         #   [pyroptosis]
+
+        self.pryoptosis()
+        # TODO: FIXME
+        # pyroptosis_mask = self.macro_mask & (self.macro_pyroptosis_counter > 12)
+
         #
-        #   if inflammasome-active = true ;; this is coded this way to draw out the release of IL1 and IL18 (make less jumpy)
+        #   if inflammasome-active = true ;; this is coded this way to draw out the release of IL1 and IL18 (make
+        #                                                                                                   less jumpy)
         #     [set IL1 Il1 + 1
         #      set pre-IL1 pre-IL1 + 5 ;; this means pre-IL1 will be 12 at time of burst, which is IL1 level at burst
         #      set IL18 IL18 + 1
         #      set pre-IL18 pre-IL18 + 0.5 ;; mimic IL1 at the moment, half amount generated though (arbitrary)
-        #      set pyroptosis-counter pyroptosis-counter + 1] ;; Pyroptosis takes 120 min from inflammasome activation to pyroptosis so counter threshold is 12
-        #
-        #   ;; stage 2 = activation of inflammasome => use virus-eaten as proxy for intracellular viral products, effects of phagocytosis
+        #      set pyroptosis-counter pyroptosis-counter + 1] ;; Pyroptosis takes 120 min from inflammasome activation
+        #                                                        to pyroptosis so counter threshold is 12
+
+        inflammasome_active_mask = self.macro_mask & self.macro_inflammasome_active
+        locations = self.macro_locations[inflammasome_active_mask]
+        self.IL1[tuple(locations.T)] += 1
+        self.macro_pre_il1[inflammasome_active_mask] += 5
+        self.IL18[tuple(locations.T)] += 1
+        self.macro_pre_il18[inflammasome_active_mask] += 0.5
+        self.macro_pyroptosis_counter[inflammasome_active_mask] += 1
+
+        #   ;; stage 2 = activation of inflammasome => use virus-eaten as proxy for intracellular viral products,
+        #      effects of phagocytosis
         #   if inflammasome-primed = true
-        #    [if virus-eaten / 10 > inflammasome-activation-threshold ;; extra-, intra- and eaten virus in the scale of up to 100
-        #                                                           ;; macro-phago-limit set to 1000 (with virus-eaten / 10), activation thresholds ~ 50
+        #    [if virus-eaten / 10 > inflammasome-activation-threshold ;; extra-, intra- and eaten virus in the scale of
+        #                                                                up to 100
+        #                                                           ;; macro-phago-limit set to 1000
+        #                                                              (with virus-eaten / 10), activation
+        #                                                              thresholds ~ 50
         #     [set inflammasome-active true
         #      set shape "target"
         #      set size 1.5
         #     ]
         #   ]
+
+        inflammasome_primed_mask = (
+                self.macro_mask
+                & self.macro_inflammasome_primed
+                & (self.macro_virus_eaten / 10 > self.inflammasome_activation_threshold)
+        )
+        self.macro_inflammasome_active[inflammasome_primed_mask] = True
+
         #
         #   ;; stage 1 = Priming by P/DAMPS or TNF
         #   if P/DAMPS + TNF > inflammasome-priming-threshold
         #   [set inflammasome-primed true]
+
+        inflammasome_priming_mask = self.macro_mask & (self.epi_type == EpiType.Healthy)
+        self.macro_inflammasome_primed[inflammasome_priming_mask] = True
+
         # ;;  [set inflammasome "inactive"]
         #
         # end
@@ -767,12 +1019,15 @@ class AnCockrellModel:
         # set IL1 pre-IL1
         # set IL18 pre-IL18
         # set P/DAMPs P/DAMPs + 10
-        # hatch 1 ;; this maintains steady number of macrophages, thus this model does not simulate macrophage depletion via pyroptosis
+        # hatch 1 ;; this maintains steady number of macrophages, thus this model does not simulate macrophage
+        #            depletion via pyroptosis
         #   [set color green
         #    set shape "circle"
         #    set size 1
-        #     move-to one-of patches with [count epis + count infected-epis > 0] ;; this has regenerated macros move to a random patch that isnt already dead
-        #    set macro-phago-limit 1000 ;; aribitrary number
+        #     move-to one-of patches with [count epis + count infected-epis > 0] ;; this has regenerated macros move to
+        #                                                                           a random patch that isn't already
+        #                                                                           dead
+        #    set macro-phago-limit 1000 ;; arbitrary number
         #    set pre-IL1 0
         #    set pre-IL18 0
         #    set inflammasome-primed false
@@ -850,7 +1105,9 @@ class AnCockrellModel:
         #
         #   ;; activates endothelium
         #   ifelse bat? = false
-        #    [ if TNF + IL1 > human-endo-activation and count activated-endos-here = 0 ;; arbitrary level of TNF + IL1 => set at 5 for human, 10 for bat
+        #    [ if TNF + IL1 > human-endo-activation and count activated-endos-here = 0 ;; arbitrary level of
+        #                                                                                 TNF + IL1 => set at 5 for
+        #                                                                                 human, 10 for bat
         #      [hatch 1
         #       [set breed activated-endos
         #        set color pink
@@ -866,7 +1123,9 @@ class AnCockrellModel:
         #    ]
         #   ]
         #
-        #    [ if TNF + IL1 > bat-endo-activation and count activated-endos-here = 0 ;; arbitrary level of TNF + IL1 => set at 5 for human, 10 for bat
+        #    [ if TNF + IL1 > bat-endo-activation and count activated-endos-here = 0 ;; arbitrary level of
+        #                                                                               TNF + IL1 => set at 5 for
+        #                                                                               human, 10 for bat
         #      [hatch 1
         #       [set breed activated-endos
         #        set color pink
@@ -950,7 +1209,6 @@ class AnCockrellModel:
         # end
 
     def cleanup(self):
-        pass
         # to cleanup
         # if extracellular-virus < 1
         #   [set extracellular-virus 0]
@@ -979,9 +1237,21 @@ class AnCockrellModel:
         # if P/DAMPS < 0.1
         #   [set P/DAMPS 0]
         # end
+        self.extracellular_virus[self.extracellular_virus < 1] = 0
+        self.T1IFN[self.T1IFN < 0.1] = 0
+        self.IFNg[self.IFNg < 0.1] = 0
+        self.TNF[self.TNF < 0.1] = 0
+        self.IL6[self.IL6 < 0.1] = 0
+        self.IL1[self.IL1 < 0.1] = 0
+        self.IL10[self.IL10 < 0.1] = 0
+        self.PAF[self.PAF < 0.1] = 0
+        self.IL8[self.IL8 < 0.1] = 0
+        self.ROS[self.ROS < 0.1] = 0
+        self.IL12[self.IL12 < 0.1] = 0
+        self.IL8[self.IL8 < 0.1] = 0
+        self.P_DAMPS[self.P_DAMPS < 0.1] = 0
 
     def evaporate(self):
-        pass
         # to evaporate
         # set T1IFN T1IFN * .99
         # set IFNg IFNG * .99
@@ -997,6 +1267,20 @@ class AnCockrellModel:
         # set P/DAMPS P/DAMPS * 0.9
         #
         # end
+        evap_const_1: float = 0.99
+        evap_const_2: float = 0.9
+        self.T1IFN *= evap_const_1
+        self.IFNg *= evap_const_1
+        self.TNF *= evap_const_1
+        self.IL6 *= evap_const_1
+        self.IL1 *= evap_const_1
+        self.IL10 *= evap_const_1
+        self.PAF *= evap_const_2
+        self.IL8 *= evap_const_1
+        self.ROS *= evap_const_2
+        self.IL12 *= evap_const_1
+        self.IL18 *= evap_const_1
+        self.P_DAMPS *= evap_const_2
 
     def wiggle(self):
         pass
@@ -1027,28 +1311,80 @@ class AnCockrellModel:
         # ask patches
         #   [regrow-epis
         #    set-background
-        #    evaporate ;; This order is important, if you put evaporate after cleanup you never get decent levels of cytokine
+        #    evaporate ;; This order is important, if you put evaporate after cleanup you never get decent levels of
+        #                 cytokine
         #    cleanup
         #  ]
-        #
+
+        self.regrow_epis()
+        self.evaporate()
+        self.cleanup()
+
         #
         # end
 
-    def create_epi(
-        self,
-        *,
-        position,
-        intracellular_virus,
-        viral_carrying_capacity,
-        resistance_to_infection,
-        cell_membrane,
-        apoptosis_counter,
-        apoptotis_threshold,
-        T1IFN,
+    def create_nk(
+            self,
+            *,
+            number: int = 1,
+            loc: Optional[Union[Tuple[int, int], Tuple[float, float]]] = None,
     ):
-        # TODO
+        if number > 1:
+            for _ in range(number):
+                self.create_nk(loc=loc)
+        elif number == 1:
+            if self.nk_pointer >= self.MAX_NKS:
+                self.compact_nk_arrays()
+                # maybe the array is already compacted:
+                if self.nk_pointer >= self.MAX_NKS:
+                    raise RuntimeError(
+                        "Max NKs exceeded, you may want to change the MAX_NKS parameter."
+                    )
+            if loc is None:
+                self.nk_locations[self.nk_pointer, 0] = (
+                        self.GRID_HEIGHT * np.random.rand()
+                )
+                self.nk_locations[self.nk_pointer, 1] = (
+                        self.GRID_WIDTH * np.random.rand()
+                )
+            else:
+                self.nk_locations[self.nk_pointer, :] = loc
+
+            self.nk_dirs[self.nk_pointer] = 2 * np.pi * np.random.rand()
+            self.nk_mask[self.nk_pointer] = True
+            self.num_nks += 1
+            self.nk_pointer += 1
+        else:
+            raise RuntimeError(
+                f"Creating {number} NKs does not mean anything to this function"
+            )
+
+    def compact_nk_arrays(self):
+        self.nk_locations[: self.num_nks] = self.nk_locations[self.nk_mask]
+        self.nk_dirs[: self.num_nks] = self.nk_dirs[self.nk_mask]
+        self.nk_mask[: self.num_nks] = True
+        self.nk_mask[self.num_nks:] = False
+        self.nk_pointer = self.num_nks
+        # TODO: make sure all arrays are copied
+
+    def create_macro(
+            self,
+            *,
+            macro_phago_limit,
+            pre_il1,
+            pre_il18,
+            inflammasome_primed,
+            inflammasome_active,
+            macro_activation_level,
+            macro_phago_counter,
+            pyroptosis_counter,
+            virus_eaten,
+            cells_eaten,
+    ):
         pass
 
+    def create_dc(self, *, dc_location, trafficking_counter):
+        pass
 
 # # Original NetLogo readme/comments
 # Name of model: Comparative Biology Immune ABM (CBIABM)
@@ -1056,15 +1392,17 @@ class AnCockrellModel:
 # Purpose: Simulate those aspects of innate immune response different between bats and humas. These areas are:
 #
 # 1. Decreased sensativity to P/DAMP due to high metabolic rate
-# 2 Decreased ramp up of T1IFNs in response to perturbation => intrinsic to this is that baseline is higher?
-# 3. Decreased inflammasome activation => consequences are decreased caspase-1 activation which leads to decreased IL1/IL18 and decreased pyroptosis
+# 2. Decreased ramp up of T1IFNs in response to perturbation => intrinsic to this is that baseline is higher?
+# 3. Decreased inflammasome activation => consequences are decreased caspase-1 activation which leads to decreased
+#    IL1/IL18 and decreased pyroptosis
 # 4. Decreased processing/release of IL1
 #
 # =========================================================================================
 #
 # Guide to World view:
 #
-# The  World  view, consisting of the 51 x 51  square grid, can be seen on the right side of the User Interface. The following is a key to the agent shapes seen on that view:
+# The  World  view, consisting of the 51 x 51  square grid, can be seen on the right side of the User Interface.
+# The following is a key to the agent shapes seen on that view:
 #
 # Blue Squares = Healthy Epithelial Cells
 # Yellow Squares = Infected Epithelial Cells
@@ -1077,7 +1415,11 @@ class AnCockrellModel:
 # Pink Square Outlines = Activated Endothelial Cells
 # Small White Circles = PMNs
 #
-# At initialization the entire world-space is filled with Healthy Epithelial Cells (Blue Squares). When dead Epithelial Cells of both types are cleared by phagocytosis what remains is black space, which can then be refilled be new Epithelial Cells as they heal (see main text for rules). The levels of extracellular virus and different mediators can be seen in the background behind the agents; see “Visualization Controls” below how to hide and reshow Epithelial and Endothelial Cells.
+# At initialization the entire world-space is filled with Healthy Epithelial Cells (Blue Squares). When dead
+# Epithelial Cells of both types are cleared by phagocytosis what remains is black space, which can then be refilled
+# be new Epithelial Cells as they heal (see main text for rules). The levels of extracellular virus and different
+# mediators can be seen in the background behind the agents; see “Visualization Controls” below how to hide and
+# reshow Epithelial and Endothelial Cells.
 #
 # =========================================================================================
 #
@@ -1091,19 +1433,31 @@ class AnCockrellModel:
 #
 # Model behavior criteria:
 # 1. Bats have a higher baseline generation of P/DAMP, therefore macro-activation threshold is higher
-# 2. Ideally bats should have longer/persistent virus present, mostly intracellular, in dynamic equilibrium => decrease apoptosis (longer virus factory duration), decrease pyroptosis/macros-full => we know that in the model increasing full-macros leads to impaired viral clearance => Rely on epitheilial-mediated viral control (avoid full-macro point?)
+# 2. Ideally bats should have longer/persistent virus present, mostly intracellular, in dynamic equilibrium => decrease
+#    apoptosis (longer virus factory duration), decrease pyroptosis/macros-full => we know that in the model increasing
+#    full-macros leads to impaired viral clearance => Rely on epitheilial-mediated viral control (avoid full-macro
+#    point?)
 # 3. Ideally generate shedding state (extracellular virus) from baseline state by increasing P/DAMPs => "stress state"
 #
 # Modeling Baseline P/DAMP
 # Called in "metabolism" command, has epi cells randomly generate "metabolic-byproduct" which is the update to P/DAMP.
-# Random is 1/100, metabolic-byproduct slider from 0.1 to 1.0 updated by 0.01. Note: update of total-P/DAMP must occur prior to evap/diffuse/cleanup otherwise no detectable value
+# Random is 1/100, metabolic-byproduct slider from 0.1 to 1.0 updated by 0.01. Note: update of total-P/DAMP must occur
+# prior to evap/diffuse/cleanup otherwise no detectable value
 #
 # Modeling Viral Infection and Replication
 #
-# Viral infecton and replication: stochastic process, but intial infection synchronizes, period of intracellular replication to reach threshold at which time infected cell starts to leak virus, leaking of virus consumes cell membrane until cell dies. NO BURST EFFECT, though cell death in this fashion leads to the production of P/DAMPs; supposition is that this does not occur due to apoptosis being activated. So hyperinflammation occurs either because epi apoptosis is interrupted (some viruses do this) or due to pyroptosis (less likely necrosis) of macros leads to P/DAMP production.
+# Viral infecton and replication: stochastic process, but intial infection synchronizes, period of intracellular
+# replication to reach threshold at which time infected cell starts to leak virus, leaking of virus consumes cell
+# membrane until cell dies. NO BURST EFFECT, though cell death in this fashion leads to the production of P/DAMPs;
+# supposition is that this does not occur due to apoptosis being activated. So hyperinflammation occurs either because
+# epi apoptosis is interrupted (some viruses do this) or due to pyroptosis (less likely necrosis) of macros leads to
+# P/DAMP production.
 #
-# Virus invasion uses susceptability-to-infection as a variable for epi cells to be infected. The calcuation is random 100 < max list susceptability-to-infection extracellular-virus. This means more likely for invasion if higher extracellular-virus, but possibility exists if there are extracellular-virus present.
-# Also, min value of extracellular-virus set to 1 (cleanup command), diffusion of extracellular virus changed to 0.05 (working with susceptability-to-infection = 25)
+# Virus invasion uses susceptability-to-infection as a variable for epi cells to be infected. The calcuation is
+# random 100 < max list susceptability-to-infection extracellular-virus. This means more likely for invasion if higher
+# extracellular-virus, but possibility exists if there are extracellular-virus present.
+# Also, min value of extracellular-virus set to 1 (cleanup command), diffusion of extracellular virus changed to 0.05
+# (working with susceptability-to-infection = 25)
 #
 # Epi Cell Function:
 #
@@ -1112,33 +1466,45 @@ class AnCockrellModel:
 #
 # Infected Epi cell functions:
 #
-# Epi cell apoptosis: Counter that starts with infection, leads to cell death prior to full cell membrane consumption point, effect is to reduce overall level of virus, but does not help infected cell. Dies without generating P/DAMPs.
-# This version sets the epi-apoptosis-threshold to 450 + random 100, essentially half of the total cell membrane with randomness added. Earlier versions with 475 + random 50 and NK enhancement + 1 lead to pretty abrupt die-off just after Day 30.
+# Epi cell apoptosis: Counter that starts with infection, leads to cell death prior to full cell membrane consumption
+# point, effect is to reduce overall level of virus, but does not help infected cell. Dies without generating P/DAMPs.
+# This version sets the epi-apoptosis-threshold to 450 + random 100, essentially half of the total cell membrane with
+# randomness added. Earlier versions with 475 + random 50 and NK enhancement + 1 lead to pretty abrupt die-off just
+# after Day 30.
 #
 #
 # NK cell functions:
 #
-# NK cells chemotax to T1IFN, IL12 and IL18 (need all three to be present). Kills infected-epis by inducing faster apoptosis
+# NK cells chemotax to T1IFN, IL12 and IL18 (need all three to be present). Kills infected-epis by inducing faster
+# apoptosis
 #
 # Macro Functions:
 #
-# Macros are now forced towards baseline inactivation, -1 with pro-, +1 with anti. Mostly impacts antis, allows recovery of IL10 levels
+# Macros are now forced towards baseline inactivation, -1 with pro-, +1 with anti. Mostly impacts antis, allows
+# recovery of IL10 levels
 #
-# There is a distinction between pro-inflammatory state (activation) and inflammasome activation, supposition is that the determination of the M1 macrophage phenotype involves more than just inflammasome activation
+# There is a distinction between pro-inflammatory state (activation) and inflammasome activation, supposition is that
+# the determination of the M1 macrophage phenotype involves more than just inflammasome activation
 #
 # Inflammasome Properties:
 #
 # Inflammasome activation 2nd stage based on virus-eaten, no function infection of macros.
 #
 # Role of IL1:
-# IL6 or P/DAMPS are needed for activation of NFkB, which is needed for TNF, IL6 and IL10; these now get activated by IL1 + P/DAMP > 1
-# IL1 more simply needed for IL6 production by macros and DCs, added to macro-activation-level determination (okay since it is not produced directly as part of that conditional statement), IL1 + TNF > 1 needed for infected-epi production of IL6
-# Need to turn inflammasome priming down to 1.0 in order to get activation and production of IL1 (which then allows production of TNF, IL6 and IL10).
-# IL1 and IL18 production, instead of build up and burst at pyroptosis releasing all at once, start producing IL1/IL18 upon inflammasome activation, with lessor burst at pyroptosis.
+# IL6 or P/DAMPS are needed for activation of NFkB, which is needed for TNF, IL6 and IL10; these now get activated by
+# IL1 + P/DAMP > 1
+# IL1 more simply needed for IL6 production by macros and DCs, added to macro-activation-level determination (okay
+# since it is not produced directly as part of that conditional statement), IL1 + TNF > 1 needed for infected-epi
+# production of IL6
+# Need to turn inflammasome priming down to 1.0 in order to get activation and production of IL1 (which then allows
+# production of TNF, IL6 and IL10).
+# IL1 and IL18 production, instead of build up and burst at pyroptosis releasing all at once, start producing IL1/IL18
+# upon inflammasome activation, with lessor burst at pyroptosis.
 #
 #
 # Pyroptosis from activated inflammasome
-# IL1 is now made as pre-IL1 during period between inflammasome activation and pyroptosis (120 minutes), pre-IL1 increments by + 10 so IL1 is 120 upon macro death
+# IL1 is now made as pre-IL1 during period between inflammasome activation and pyroptosis (120 minutes), pre-IL1
+# increments by + 10 so IL1 is 120 upon macro death
 # Increases P/DAMPS + 10
 # Creates a naive macro and jumps away (macro steady state)
 #
@@ -1147,26 +1513,31 @@ class AnCockrellModel:
 # Adds ability to have baseline T1IFN generation => bats do this
 # Controled by Switch
 # Random 100 = 1 => Set T1IFN + 0.15
-# Adds antiviral effect T1IFN => inihibits viral-replication by - T1IFN/10 on viral replication, does not eradicate but keeps minimum of 1 (human = - T1IFN/100)
+# Adds antiviral effect T1IFN => inihibits viral-replication by - T1IFN/10 on viral replication, does not eradicate
+# but keeps minimum of 1 (human = - T1IFN/100)
 # Infected Epis make T1IFN + 1 and IL18 + 0.11
 #
 # Bat Baseline Metabolism-byproduct = 0.5
 # Note for non-bat inflammasome-prime-threshold needs to be 1.0 in order to get priming for pyroptosis
 #
 # Endothelial activation and PMN burst:
-# 1. Endothelial activation by TNF + IL1 > endothelial-activation slider (difference between bat = 10 and human = 5 at baseline)
+# 1. Endothelial activation by TNF + IL1 > endothelial-activation slider (difference between bat = 10 and human = 5
+#    at baseline)
 # 2. Once activated make PAF + 1 and stay activated until TNF + IL1 < 0.5 (arbitrary)
 # 3. After 36 steps (6 hrs) representing adhesion activation, 10% chance will hatch PMN
 # 4. Adhesed PMNs jump random 5 upon arrival (prevents self containment)
 # 5. PMN will live 6 hrs (36 steps) in tissue then undergo respiratory burst and produce ROS + 10 and IL1 + 1
-# 5. Epis and Infected-Epis will die with ROS-counter > 10 (+ ROS per step); this mode of death (dead-epis) will lead to P/DAMP + 10
+# 5. Epis and Infected-Epis will die with ROS-counter > 10 (+ ROS per step); this mode of death (dead-epis) will lead
+#    to P/DAMP + 10
 # 6. Dead-epis now make P/DAMPS + 1 until they are phagocytosed
 #
 # =========================================================================================
 #
 # Simulation Experiments (Also see Behavior Space)
 #
-# *NOTE: Simulation experiments are run with the "Random-Runs" switch "Off", stochastic replicates achieved by incrementing the random number seed by 1 to the number of stochastic replicates desired. This is done to allow tracing of specific runs (by seed); this allows the potential for deeper examination of specific run.
+# *NOTE: Simulation experiments are run with the "Random-Runs" switch "Off", stochastic replicates achieved by
+# incrementing the random number seed by 1 to the number of stochastic replicates desired. This is done to allow
+# tracing of specific runs (by seed); this allows the potential for deeper examination of specific run.
 #
 # For Parameter sweeps:
 # Baseline Bat
