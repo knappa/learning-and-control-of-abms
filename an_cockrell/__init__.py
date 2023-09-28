@@ -334,7 +334,7 @@ class AnCockrellModel:
         self.epithelium_apoptosis_counter = np.zeros(geom, dtype=np.int64)
         # noinspection PyUnresolvedReferences
         self.epithelium_apoptosis_threshold = (
-                450 + 100 * np.random.rand(*geom)
+            450 + 100 * np.random.rand(*geom)
         ).asdtype(np.int64)
 
         if self.BAT:
@@ -517,7 +517,7 @@ class AnCockrellModel:
         #   ]
         infected_epi_mask = self.epi_type == EpiType.Infected
         epis_to_apoptose_mask = infected_epi_mask & (
-                self.epi_apoptosis_counter > self.epithelium_apoptosis_threshold
+            self.epi_apoptosis_counter > self.epithelium_apoptosis_threshold
         )
         self.epi_type[epis_to_apoptose_mask] = EpiType.Apoptosed
 
@@ -534,19 +534,19 @@ class AnCockrellModel:
         #                                                                                                    of epis
 
         empty_patches = (self.epi_type == EpiType.Empty) & (
-                self.extracellular_virus == 0
+            self.extracellular_virus == 0
         )
 
         epi_patches = self.epi_type == EpiType.Healthy
         epi_neighbors = (
-                np.roll(epi_patches, 1, axis=0)
-                + np.roll(epi_patches, -1, axis=0)
-                + np.roll(epi_patches, 1, axis=1)
-                + np.roll(epi_patches, -1, axis=1)
-                + np.roll(np.roll(epi_patches, 1, axis=0), 1, axis=1)
-                + np.roll(np.roll(epi_patches, 1, axis=0), -1, axis=1)
-                + np.roll(np.roll(epi_patches, -1, axis=0), 1, axis=1)
-                + np.roll(np.roll(epi_patches, -1, axis=0), -1, axis=1)
+            np.roll(epi_patches, 1, axis=0)
+            + np.roll(epi_patches, -1, axis=0)
+            + np.roll(epi_patches, 1, axis=1)
+            + np.roll(epi_patches, -1, axis=1)
+            + np.roll(np.roll(epi_patches, 1, axis=0), 1, axis=1)
+            + np.roll(np.roll(epi_patches, 1, axis=0), -1, axis=1)
+            + np.roll(np.roll(epi_patches, -1, axis=0), 1, axis=1)
+            + np.roll(np.roll(epi_patches, -1, axis=0), -1, axis=1)
         )
 
         regrowth_candidate_patches = empty_patches & (epi_neighbors > 2)
@@ -588,7 +588,7 @@ class AnCockrellModel:
         #     ]
         #   ]
         non_regrowth_patches = regrowth_candidate_patches & (
-                self.epi_regrow_counter <= 432
+            self.epi_regrow_counter <= 432
         )
         self.epi_regrow_counter[non_regrowth_patches] += 1
 
@@ -629,11 +629,11 @@ class AnCockrellModel:
         #   ]
         chemoattractant = self.PAF + self.IL8
         chemoattractant_dx = (
-                                     np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
-                             ) / 2.0
+            np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
+        ) / 2.0
         chemoattractant_dy = (
-                                     np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
-                             ) / 2.0
+            np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
+        ) / 2.0
         locations = self.pmn_locations[self.pmn_mask].astype(np.int64)
         vecs = np.stack(
             [
@@ -650,9 +650,9 @@ class AnCockrellModel:
         #   [wiggle
         #   ]
         self.pmn_dirs += (
-                (np.random.rand(self.MAX_PMNS) - np.random.rand(self.MAX_PMNS))
-                * np.pi
-                / 4.0
+            (np.random.rand(self.MAX_PMNS) - np.random.rand(self.MAX_PMNS))
+            * np.pi
+            / 4.0
         )
         directions = np.stack([np.cos(self.pmn_dirs), np.sin(self.pmn_dirs)], axis=1)
         self.pmn_locations += directions
@@ -679,9 +679,9 @@ class AnCockrellModel:
         # if T1IFN > 0 and IL12 > 0 and IL18 > 0
         #   [set IFNg IFNg + 1] ;; need to check this, apparently does not happen, needs IL18(?)
         cytokine_production_mask = (
-                (self.T1IFN[tuple(locations.T)] > 0)
-                & (self.IL12[tuple(locations.T)] > 0)
-                & (self.IL18[tuple(locations.T)] > 0)
+            (self.T1IFN[tuple(locations.T)] > 0)
+            & (self.IL12[tuple(locations.T)] > 0)
+            & (self.IL18[tuple(locations.T)] > 0)
         )
         cytokine_production_locations = self.nk_locations[self.nk_mask][
             cytokine_production_mask
@@ -701,11 +701,11 @@ class AnCockrellModel:
         #   ]
         chemoattractant = self.T1IFN
         chemoattractant_dx = (
-                                     np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
-                             ) / 2.0
+            np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
+        ) / 2.0
         chemoattractant_dy = (
-                                     np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
-                             ) / 2.0
+            np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
+        ) / 2.0
         locations = self.nk_locations[self.nk_mask].astype(np.int64)
         vecs = np.stack(
             [
@@ -722,7 +722,7 @@ class AnCockrellModel:
         #   [wiggle
         #   ]
         self.nk_dirs += (
-                (np.random.rand(self.MAX_NKS) - np.random.rand(self.MAX_NKS)) * np.pi / 4.0
+            (np.random.rand(self.MAX_NKS) - np.random.rand(self.MAX_NKS)) * np.pi / 4.0
         )
         directions = np.stack([np.cos(self.nk_dirs), np.sin(self.nk_dirs)], axis=1)
         self.nk_locations += directions
@@ -764,11 +764,11 @@ class AnCockrellModel:
         #                                                                                                  pro and anti
         #                                                                                                  macros
         self.macro_activation[mask] += (
-                self.T1IFN[tuple(locations.T)]
-                + self.P_DAMPS[tuple(locations.T)]
-                + self.IFNg[tuple(locations.T)]
-                + self.IL1
-                - 2 * self.IL10[tuple(locations.T)]
+            self.T1IFN[tuple(locations.T)]
+            + self.P_DAMPS[tuple(locations.T)]
+            + self.IFNg[tuple(locations.T)]
+            + self.IL1
+            - 2 * self.IL10[tuple(locations.T)]
         )
 
         #   ;; separate out inflammasome mediated functions from other pro macro functions
@@ -810,11 +810,11 @@ class AnCockrellModel:
         #   ]
         chemoattractant = self.T1IFN + self.P_DAMPS
         chemoattractant_dx = (
-                                     np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
-                             ) / 2.0
+            np.roll(chemoattractant, -1, axis=0) - np.roll(chemoattractant, 1, axis=0)
+        ) / 2.0
         chemoattractant_dy = (
-                                     np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
-                             ) / 2.0
+            np.roll(chemoattractant, -1, axis=1) - np.roll(chemoattractant, 1, axis=1)
+        ) / 2.0
         locations = self.macro_locations[self.macro_mask].astype(np.int64)
         vecs = np.stack(
             [
@@ -831,12 +831,12 @@ class AnCockrellModel:
         #   [wiggle
         #   ]
         self.macro_dirs += (
-                (
-                        np.random.rand(self.MAX_MACROPHAGES)
-                        - np.random.rand(self.MAX_MACROPHAGES)
-                )
-                * np.pi
-                / 4.0
+            (
+                np.random.rand(self.MAX_MACROPHAGES)
+                - np.random.rand(self.MAX_MACROPHAGES)
+            )
+            * np.pi
+            / 4.0
         )
         self.macro_locations += np.stack(
             [np.cos(self.macro_dirs), np.sin(self.macro_dirs)], axis=1
@@ -926,7 +926,7 @@ class AnCockrellModel:
         self.IL8[tuple(locations.T)] += 1.0
         self.IL12[tuple(locations.T)] += 1.0
         downstream_mask = (
-                self.IL1[tuple(locations.T)] + self.P_DAMPS[tuple(locations.T)] > 0
+            self.IL1[tuple(locations.T)] + self.P_DAMPS[tuple(locations.T)] > 0
         )
         downstream_locations = self.macro_locations[activated_macros][downstream_mask]
         self.TNF[tuple(downstream_locations.T)] += 1
@@ -994,9 +994,9 @@ class AnCockrellModel:
         #   ]
 
         inflammasome_primed_mask = (
-                self.macro_mask
-                & self.macro_inflammasome_primed
-                & (self.macro_virus_eaten / 10 > self.inflammasome_activation_threshold)
+            self.macro_mask
+            & self.macro_inflammasome_primed
+            & (self.macro_virus_eaten / 10 > self.inflammasome_activation_threshold)
         )
         self.macro_inflammasome_active[inflammasome_primed_mask] = True
 
@@ -1186,27 +1186,49 @@ class AnCockrellModel:
         # end
 
     def diffuse_functions(self):
-        pass
         # to diffuse-functions
         #   diffuse extracellular-virus 0.05
+        self._diffuse_field(self.extracellular_virus, 0.05)
         #   diffuse T1IFN 0.1
+        self._diffuse_field(self.T1IFN, 0.1)
         #   diffuse PAF 0.1
+        self._diffuse_field(self.PAF, 0.1)
         #   diffuse ROS 0.1
+        self._diffuse_field(self.ROS, 0.1)
         #   diffuse P/DAMPs 0.1
-        #
+        self._diffuse_field(self.P_DAMPS, 0.1)
         #   diffuse IFNg 0.2
+        self._diffuse_field(self.IFNg, 0.2)
         #   diffuse TNF 0.2
+        self._diffuse_field(self.TNF, 0.2)
         #   diffuse IL6 0.2
+        self._diffuse_field(self.IL6, 0.2)
         #   diffuse IL1 0.2
+        self._diffuse_field(self.IL1, 0.2)
         #   diffuse IL10 0.2
+        self._diffuse_field(self.IL10, 0.2)
         #   diffuse IL12 0.2
+        self._diffuse_field(self.IL12, 0.2)
         #   diffuse IL18 0.2
-        #
+        self._diffuse_field(self.IL18, 0.2)
         #   diffuse IL8 0.3
-        #
-        #
-        #
+        self._diffuse_field(self.IL8, 0.3)
+
         # end
+
+    @staticmethod
+    def _diffuse_field(field: np.ndarray, diffusion_constant: Union[float, np.float64]):
+        # based on https://ccl.northwestern.edu/netlogo/docs/dict/diffuse.html
+        field[:, :] = (1 - diffusion_constant) * field + diffusion_constant * (
+            np.roll(field, 1, axis=0)
+            + np.roll(field, -1, axis=0)
+            + np.roll(field, 1, axis=1)
+            + np.roll(field, -1, axis=1)
+            + np.roll(np.roll(field, 1, axis=0), 1, axis=1)
+            + np.roll(np.roll(field, 1, axis=0), -1, axis=1)
+            + np.roll(np.roll(field, -1, axis=0), 1, axis=1)
+            + np.roll(np.roll(field, -1, axis=0), -1, axis=1)
+        ) / 8.0
 
     def cleanup(self):
         # to cleanup
@@ -1324,10 +1346,10 @@ class AnCockrellModel:
         # end
 
     def create_nk(
-            self,
-            *,
-            number: int = 1,
-            loc: Optional[Union[Tuple[int, int], Tuple[float, float]]] = None,
+        self,
+        *,
+        number: int = 1,
+        loc: Optional[Union[Tuple[int, int], Tuple[float, float]]] = None,
     ):
         if number > 1:
             for _ in range(number):
@@ -1342,10 +1364,10 @@ class AnCockrellModel:
                     )
             if loc is None:
                 self.nk_locations[self.nk_pointer, 0] = (
-                        self.GRID_HEIGHT * np.random.rand()
+                    self.GRID_HEIGHT * np.random.rand()
                 )
                 self.nk_locations[self.nk_pointer, 1] = (
-                        self.GRID_WIDTH * np.random.rand()
+                    self.GRID_WIDTH * np.random.rand()
                 )
             else:
                 self.nk_locations[self.nk_pointer, :] = loc
@@ -1363,28 +1385,29 @@ class AnCockrellModel:
         self.nk_locations[: self.num_nks] = self.nk_locations[self.nk_mask]
         self.nk_dirs[: self.num_nks] = self.nk_dirs[self.nk_mask]
         self.nk_mask[: self.num_nks] = True
-        self.nk_mask[self.num_nks:] = False
+        self.nk_mask[self.num_nks :] = False
         self.nk_pointer = self.num_nks
         # TODO: make sure all arrays are copied
 
     def create_macro(
-            self,
-            *,
-            macro_phago_limit,
-            pre_il1,
-            pre_il18,
-            inflammasome_primed,
-            inflammasome_active,
-            macro_activation_level,
-            macro_phago_counter,
-            pyroptosis_counter,
-            virus_eaten,
-            cells_eaten,
+        self,
+        *,
+        macro_phago_limit,
+        pre_il1,
+        pre_il18,
+        inflammasome_primed,
+        inflammasome_active,
+        macro_activation_level,
+        macro_phago_counter,
+        pyroptosis_counter,
+        virus_eaten,
+        cells_eaten,
     ):
         pass
 
     def create_dc(self, *, dc_location, trafficking_counter):
         pass
+
 
 # # Original NetLogo readme/comments
 # Name of model: Comparative Biology Immune ABM (CBIABM)
