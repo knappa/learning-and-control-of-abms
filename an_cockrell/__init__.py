@@ -27,6 +27,9 @@ class EndoType(IntEnum):
 # noinspection PyPep8Naming
 @define(kw_only=True)
 class AnCockrellModel:
+
+    time = field(init=False, factory=lambda: 0, type=int)
+
     GRID_WIDTH: int = field()
     GRID_HEIGHT: int = field()
 
@@ -1534,6 +1537,7 @@ class AnCockrellModel:
         self.evaporate()
         self.cleanup()
 
+        self.time += 1
         #
         # end
 
