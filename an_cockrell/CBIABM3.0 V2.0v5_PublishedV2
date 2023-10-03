@@ -519,7 +519,7 @@ to inflammasome-function
   ;; stage 2 = activation of inflammasome => use virus-eaten as proxy for intracellular viral products, effects of phagocytosis
   if inflammasome-primed = true
    [if virus-eaten / 10 > inflammasome-activation-threshold ;; extra-, intra- and eaten virus in the scale of up to 100
-                                                          ;; macro-phago-limit set to 1000 (with virus-eaten / 10), activation thresholds ~ 50
+                                                            ;; macro-phago-limit set to 1000 (with virus-eaten / 10), activation thresholds ~ 50
     [set inflammasome-active true
      set shape "target"
      set size 1.5

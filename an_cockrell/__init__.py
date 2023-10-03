@@ -18,6 +18,19 @@ class EpiType(IntEnum):
     Apoptosed = 4
 
 
+epithelial_cm = matplotlib.colors.ListedColormap(
+    np.array(
+        [
+            (0.0, 0.0, 0.0, 0.0),  # empty
+            matplotlib.colors.to_rgba("blue"),  # healthy
+            matplotlib.colors.to_rgba("yellow"),  # infected
+            matplotlib.colors.to_rgba("grey"),  # dead
+            (0.0, 0.0, 0.0, 0.0),  # apoptosed
+        ]
+    )
+)
+
+
 class EndoType(IntEnum):
     Normal = 0
     Activated = 1
@@ -27,24 +40,19 @@ class EndoType(IntEnum):
 # noinspection PyPep8Naming
 @define(kw_only=True)
 class AnCockrellModel:
-
-    time = field(init=False, factory=lambda: 0, type=int)
-
     GRID_WIDTH: int = field()
     GRID_HEIGHT: int = field()
-
-    BAT: bool = field()
-
-    INIT_DCS: int = field()
-    INIT_NKS: int = field()
-    INIT_MACROS: int = field()
-
     MAX_LYMPHNODES: int = field(default=BIG_NUM)
     MAX_PMNS: int = field(default=BIG_NUM)
     MAX_DCS: int = field(default=BIG_NUM)
     MAX_MACROPHAGES: int = field(default=BIG_NUM)
     MAX_NKS: int = field(default=BIG_NUM)
     MAX_ACTIVATED_ENDOS: int = field(default=BIG_NUM)
+
+    is_bat: bool = field()
+    init_dcs: int = field()
+    init_nks: int = field()
+    init_macros: int = field()
 
     macro_phago_recovery: float = field(default=0.5)
     macro_phago_limit: int = field(default=1_000)
@@ -61,7 +69,10 @@ class AnCockrellModel:
     resistance_to_infection: int = field(default=75)
     viral_incubation_threshold: int = field(default=60)
 
+    # summary and statistical variables
+    time = field(init=False, factory=lambda: 0, type=int)
     apoptosis_eaten_counter: int = field(default=0, init=False)
+    pyroptosed_macros = field(init=False, factory=lambda: 0, type=int)
 
     ######################################################################
     # epithelium
@@ -450,12 +461,12 @@ class AnCockrellModel:
     # self.system_health =  count epis / 2601 * 100
 
     def __attrs_post_init__(self):
-        if self.BAT:
+        if self.is_bat:
             self.T1IFN[:, :] = 5 * (np.random.rand(*self.geometry) < 0.01)
 
-        self.create_nk(number=self.INIT_NKS)
+        self.create_nk(number=self.init_nks)
 
-        for _ in range(self.INIT_MACROS):
+        for _ in range(self.init_macros):
             self.create_macro(
                 pre_il1=0,
                 pre_il18=0,
@@ -467,7 +478,7 @@ class AnCockrellModel:
                 cells_eaten=0,
             )
 
-        for _ in range(self.INIT_DCS):
+        for _ in range(self.init_dcs):
             self.create_dc()  # (dc_location="tissue", trafficking_counter=0)
 
     def infect(self, init_inoculum: int):
@@ -588,7 +599,7 @@ class AnCockrellModel:
         #   [set intracellular-virus max list 0 (intracellular-virus + 1 - (T1IFN / 100))] ;; human manifestation of
         #                                                                                     T1IFN anti viral effect
         mask = self.epithelium == EpiType.Infected
-        if self.BAT:
+        if self.is_bat:
             self.epi_intracellular_virus[mask] = np.maximum(
                 1.0, self.epi_intracellular_virus[mask] + 1 - self.T1IFN[mask] / 10
             )
@@ -730,10 +741,14 @@ class AnCockrellModel:
             ],
             axis=1,
         )
+        vecs += np.clip(
+            np.random.normal(0.0, 1e-5, size=vecs.shape), -1.0, 1.0
+        )  # small noise (randomizes direction in absence of gradient)
         norms = np.linalg.norm(vecs, axis=-1)
         norms[norms <= 1e-8] = 1.0  # effectively zero norm vectors will be unnormalized
         self.pmn_locations[self.pmn_mask] += 0.1 * vecs / np.expand_dims(norms, axis=-1)
         self.pmn_dirs[self.pmn_mask] = np.arctan2(vecs[:, 1], vecs[:, 0])
+        2 * np.pi * np.random.rand()
 
         #   [wiggle
         #   ]
@@ -802,6 +817,9 @@ class AnCockrellModel:
             ],
             axis=1,
         )
+        vecs += np.clip(
+            np.random.normal(0.0, 1e-5, size=vecs.shape), -1.0, 1.0
+        )  # small noise (randomizes direction in absence of gradient)
         norms = np.linalg.norm(vecs, axis=-1)
         norms[norms <= 1e-8] = 1.0  # effectively zero norm vectors will be unnormalized
         self.nk_locations[self.nk_mask] += 0.1 * vecs / np.expand_dims(norms, axis=-1)
@@ -816,7 +834,7 @@ class AnCockrellModel:
         self.nk_locations += 0.1 * directions
         self.nk_locations = np.mod(self.nk_locations, self.geometry)
 
-        # TODO: unstack
+        self._destack(mask=self.nk_mask, locations=self.nk_locations)
 
         #   ;consumption IL18 and IL12
         # set IL12 max list 0 IL12 - 0.1
@@ -911,6 +929,9 @@ class AnCockrellModel:
             ],
             axis=1,
         )
+        vecs += np.clip(
+            np.random.normal(0.0, 1e-5, size=vecs.shape), -1.0, 1.0
+        )  # small noise (randomizes direction in absence of gradient)
         norms = np.linalg.norm(vecs, axis=-1)
         norms[norms <= 1e-8] = 1.0  # effectively zero norm vectors will be unnormalized
         self.macro_locations[self.macro_mask] += (
@@ -933,7 +954,7 @@ class AnCockrellModel:
         )
         self.macro_locations = np.mod(self.macro_locations, self.geometry)
 
-        # TODO: unstack
+        self._destack(mask=self.macro_mask, locations=self.macro_locations)
 
         #     ;;PHAGOCYTOSIS LIMIT check
         #   ;; check for macro-phago-limit
@@ -1047,9 +1068,7 @@ class AnCockrellModel:
         #   if pyroptosis-counter > 12  ;; 120 minutes
         #   [pyroptosis]
 
-        self.pryoptosis()
-        # TODO: FIXME
-        # pyroptosis_mask = self.macro_mask & (self.macro_pyroptosis_counter > 12)
+        self.pyroptosis()
 
         #
         #   if inflammasome-active = true ;; this is coded this way to draw out the release of IL1 and IL18 (make
@@ -1106,34 +1125,49 @@ class AnCockrellModel:
         #
         # end
 
-    def pryoptosis(self):
-        pass
+    def pyroptosis(self):
+        pyroptosis_mask = self.macro_mask & (self.macro_pyroptosis_counter > 12)
+
         # to pyroptosis
         # set pyroptosed-macros pyroptosed-macros + 1
+
+        num_to_pyroptose = np.sum(pyroptosis_mask)
+        self.pyroptosed_macros += num_to_pyroptose
+
         # set IL1 pre-IL1
         # set IL18 pre-IL18
         # set P/DAMPs P/DAMPs + 10
-        # hatch 1 ;; this maintains steady number of macrophages, thus this model does not simulate macrophage
-        #            depletion via pyroptosis
-        #   [set color green
-        #    set shape "circle"
-        #    set size 1
-        #     move-to one-of patches with [count epis + count infected-epis > 0] ;; this has regenerated macros move to
-        #                                                                           a random patch that isn't already
-        #                                                                           dead
-        #    set macro-phago-limit 1000 ;; arbitrary number
-        #    set pre-IL1 0
-        #    set pre-IL18 0
-        #    set inflammasome-primed false
-        #    set inflammasome-active false
-        #    set macro-activation-level 0
-        #    set macro-phago-counter 0
-        #    set pyroptosis-counter 0
-        #    set virus-eaten 0
-        #    set cells-eaten 0
-        #   ]
-        #  die
-        #
+        locations = self.macro_locations[pyroptosis_mask].astype(np.int64)
+        self.IL1[tuple(locations.T)] = self.macro_pre_il1[pyroptosis_mask]
+        self.IL18[tuple(locations.T)] = self.macro_pre_il18[pyroptosis_mask]
+        self.P_DAMPS[tuple(locations.T)] += 10
+
+        self.macro_mask[
+            pyroptosis_mask
+        ] = False  # I'm doing death first, since this clears a little space
+        macro_creation_locations = np.array(
+            np.where(
+                (self.epithelium == EpiType.Healthy)
+                | (self.epithelium == EpiType.Infected)
+            )
+        )
+        for loc_idx in np.random.choice(
+            macro_creation_locations.shape[1],
+            num_to_pyroptose,
+        ):
+            self.create_macro(
+                loc=macro_creation_locations[:, loc_idx],
+                pre_il1=0,
+                pre_il18=0,
+                inflammasome_primed=False,
+                inflammasome_active=False,
+                macro_activation_level=0,
+                # macro_phago_counter=0,
+                pyroptosis_counter=0,
+                virus_eaten=0,
+                cells_eaten=0,
+            )
+
         # end
 
     def dc_update(self):
@@ -1209,6 +1243,9 @@ class AnCockrellModel:
             ],
             axis=1,
         )
+        vecs += np.clip(
+            np.random.normal(0.0, 1e-5, size=vecs.shape), -1.0, 1.0
+        )  # small noise (randomizes direction in absence of gradient)
         norms = np.linalg.norm(vecs, axis=-1)
         norms[norms <= 1e-8] = 1.0  # effectively zero norm vectors will be unnormalized
         self.dc_locations[self.dc_mask] += 0.1 * vecs / np.expand_dims(norms, axis=-1)
@@ -1225,7 +1262,7 @@ class AnCockrellModel:
         )
         self.dc_locations = np.mod(self.dc_locations, self.geometry)
 
-        # TODO: de-stack
+        self._destack(mask=self.dc_mask, locations=self.dc_locations)
 
         #
         #   ]
@@ -1259,7 +1296,7 @@ class AnCockrellModel:
         #  if bat? = true
         #   [baseline-T1IFN-generation
         #   ]
-        if self.BAT:
+        if self.is_bat:
             self.baseline_t1ifn_generation()
 
         # ACK: not sure why this logical structure was chosen, why not combine the else in the `if BAT` above?
@@ -1267,7 +1304,7 @@ class AnCockrellModel:
 
         #   ;; activates endothelium
         #   ifelse bat? = false
-        if not self.BAT:
+        if not self.is_bat:
             #    [ if TNF + IL1 > human-endo-activation and count activated-endos-here = 0 ;; arbitrary level of
             #                                                                                 TNF + IL1 => set at 5 for
             #                                                                                 human, 10 for bat
@@ -1434,34 +1471,6 @@ class AnCockrellModel:
         ) / 8.0
 
     def cleanup(self):
-        # to cleanup
-        # if extracellular-virus < 1
-        #   [set extracellular-virus 0]
-        # if T1IFN < 0.1
-        #   [set T1IFN 0]
-        # if IFNg < 0.1
-        #   [set IFNg 0]
-        # if TNF < 0.1
-        #   [set TNF 0]
-        # if IL6 < 0.1
-        #   [set IL6 0]
-        # if IL1 < 0.1
-        #   [set IL1 0]
-        # if IL10 < 0.1
-        #   [set IL10 0]
-        # if PAF < 0.1
-        #   [set PAF 0]
-        # if IL8 < 0.1
-        #   [set IL8 0]
-        # if ROS < 0.1
-        #   [set ROS 0]
-        # if IL12 < 0.1
-        #   [set IL12 0]
-        # if IL18 < 0.1
-        #   [set IL18 0]
-        # if P/DAMPS < 0.1
-        #   [set P/DAMPS 0]
-        # end
         self.extracellular_virus[self.extracellular_virus < 1] = 0
         self.T1IFN[self.T1IFN < 0.1] = 0
         self.IFNg[self.IFNg < 0.1] = 0
@@ -1477,21 +1486,6 @@ class AnCockrellModel:
         self.P_DAMPS[self.P_DAMPS < 0.1] = 0
 
     def evaporate(self):
-        # to evaporate
-        # set T1IFN T1IFN * .99
-        # set IFNg IFNG * .99
-        # set TNF TNF * .99
-        # set IL6 IL6 * .99
-        # set IL1 IL1 * .99
-        # set IL10 IL10 * .99
-        # set PAF PAF * .9
-        # set IL8 IL8 * .99
-        # set ROS ROS * 0.9
-        # set IL12 IL12 * .99
-        # set IL18 IL18 * .99
-        # set P/DAMPS P/DAMPS * 0.9
-        #
-        # end
         evap_const_1: float = 0.99
         evap_const_2: float = 0.9
         self.T1IFN *= evap_const_1
@@ -1701,50 +1695,46 @@ class AnCockrellModel:
         self.pmn_pointer = self.num_pmns
         # TODO: make sure all arrays are copied
 
+    def _destack(self, mask: np.ndarray, locations: np.ndarray):
+        """
+        Make sure that no more than one agent lies on each patch.
+        """
+        location_used = np.zeros(self.geometry, dtype=bool)
+        agent_indices = np.where(mask)[0]
+        np.random.shuffle(agent_indices)
+        for idx in agent_indices:
+            while location_used[tuple(locations[idx, :].astype(int))]:
+                # jump no more than a unit in an arbitrary direction
+                perturbation = np.random.normal(0, 0.5, size=2)
+                perturbation /= np.maximum(1.0, np.linalg.norm(perturbation))
+                locations[idx, :] += perturbation
+                locations[idx, :] = np.mod(locations[idx, :], self.geometry)
+            location_used[tuple(locations[idx, :].astype(int))] = True
+
     def plot_agents(self, ax: plt.Axes):
+        ax.clear()
         # epithelium
         # * Blue Squares = Healthy Epithelial Cells
         # * Yellow Squares = Infected Epithelial Cells
         # * Grey Squares = Epithelial Cells killed by necrosis
-        # * Grey Pentagons = Epithelial Cells killed by apoptosis
         ax.imshow(
-            self.epithelium.astype(int),
-            cmap=matplotlib.colors.ListedColormap(
-                np.array(
-                    [
-                        (0.0, 0.0, 0.0, 0.0),
-                        matplotlib.colors.to_rgba("blue"),
-                        matplotlib.colors.to_rgba("yellow"),
-                        matplotlib.colors.to_rgba("grey"),
-                        (0.0, 0.0, 0.0, 0.0),
-                        (0.0, 0.0, 0.0, 0.0),
-                    ]
-                )
-            ),
+            self.epithelium.astype(int).T,
+            cmap=epithelial_cm,
             vmin=0,
             vmax=4,
             zorder=-1,
+            origin="lower",
+            extent=(
+                0.0,
+                self.epithelium.shape[0],
+                0.0,
+                self.epithelium.shape[1],
+            ),  # TODO: non-square grid?
         )
-        # ax.scatter(
-        #     *np.where(self.epithelium == EpiType.Healthy),
-        #     color="blue",
-        #     marker="s",
-        #     zorder=-1,
-        # )
-        # ax.scatter(
-        #     *np.where(self.epithelium == EpiType.Infected),
-        #     color="yellow",
-        #     marker="s",
-        #     zorder=-1,
-        # )
-        # ax.scatter(
-        #     *np.where(self.epithelium == EpiType.Dead),
-        #     color="grey",
-        #     marker="s",
-        #     zorder=-1,
-        # )
+        # * Grey Pentagons = Epithelial Cells killed by apoptosis
         ax.scatter(
-            *np.where(self.epithelium == EpiType.Apoptosed),
+            *np.array(np.where(self.epithelium == EpiType.Apoptosed))
+            + np.array([[1 / 2], [1 / 2]]),
             color="grey",
             marker="p",
             zorder=-1,
@@ -1799,10 +1789,12 @@ class AnCockrellModel:
             marker=markers.MarkerStyle("o", fillstyle="none"),
         )
 
-        ax.set_xlim(0, self.geometry[0])
-        ax.set_ylim(0, self.geometry[1])
+        # TODO: non-square grid?
+        ax.set_xlim(0, self.geometry[1])
+        ax.set_ylim(0, self.geometry[0])
 
     def plot_field(self, ax: plt.Axes, *, field_name):
+        ax.clear()
         assert field_name in {
             "extracellular_virus",
             "epi_regrow_counter",
@@ -1823,5 +1815,11 @@ class AnCockrellModel:
             "IFNg",
             "T1IFN",
         }, "Unknown field!"
+        field_array = getattr(self, field_name)
 
-        ax.imshow(getattr(self, field_name), vmin=0, origin="lower")
+        ax.imshow(
+            field_array.T,
+            vmin=0,
+            origin="lower",
+            extent=(0.0, field_array.shape[0], 0.0, field_array.shape[1]),
+        )  # TODO: non-square grid?
