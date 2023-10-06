@@ -1,5 +1,6 @@
 from enum import IntEnum
 from typing import Optional, Tuple, Union, List
+import h5py
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -42,12 +43,10 @@ class EndoType(IntEnum):
 class AnCockrellModel:
     GRID_WIDTH: int = field()
     GRID_HEIGHT: int = field()
-    MAX_LYMPHNODES: int = field(default=BIG_NUM)
     MAX_PMNS: int = field(default=BIG_NUM)
     MAX_DCS: int = field(default=BIG_NUM)
     MAX_MACROPHAGES: int = field(default=BIG_NUM)
     MAX_NKS: int = field(default=BIG_NUM)
-    MAX_ACTIVATED_ENDOS: int = field(default=BIG_NUM)
 
     is_bat: bool = field()
     init_dcs: int = field()
@@ -1018,7 +1017,8 @@ class AnCockrellModel:
         #      ]
 
         macros_at_apoptosed_epi = under_limit_mask & (
-            self.epithelium[tuple(self.macro_locations.T.astype(np.int64))] == EpiType.Apoptosed
+            self.epithelium[tuple(self.macro_locations.T.astype(np.int64))]
+            == EpiType.Apoptosed
         )
         self.macro_cells_eaten[macros_at_apoptosed_epi] += 1
         self.apoptosis_eaten_counter += np.sum(macros_at_apoptosed_epi)
@@ -1034,10 +1034,13 @@ class AnCockrellModel:
         #   ]
 
         dead_epis = under_limit_mask & (
-            self.epithelium[tuple(self.macro_locations.T.astype(np.int64))] == EpiType.Dead
+            self.epithelium[tuple(self.macro_locations.T.astype(np.int64))]
+            == EpiType.Dead
         )
         self.macro_cells_eaten[dead_epis] += 1
-        self.epithelium[tuple(self.macro_locations[dead_epis].T.astype(np.int64))] = EpiType.Empty
+        self.epithelium[
+            tuple(self.macro_locations[dead_epis].T.astype(np.int64))
+        ] = EpiType.Empty
 
         # if macro-activation-level > 5 ;; This is where decreased sensitivity to P/DAMPS can be seen. Link
         #                                  macro-activation-level to Inflammasome variable?
@@ -1066,7 +1069,9 @@ class AnCockrellModel:
 
         downstream_products_mask = (
             activated_macros
-            & (self.IL1 + self.P_DAMPS > 0)[tuple(self.macro_locations.T.astype(np.int64))]
+            & (self.IL1 + self.P_DAMPS > 0)[
+                tuple(self.macro_locations.T.astype(np.int64))
+            ]
         )
         downstream_locations = self.macro_locations[downstream_products_mask].astype(
             np.int64
@@ -1752,7 +1757,7 @@ class AnCockrellModel:
                 locations[idx, :] = np.mod(locations[idx, :], self.geometry)
             location_used[tuple(locations[idx, :].astype(int))] = True
 
-    def plot_agents(self, ax: plt.Axes, *, base_zorder:int=-1):
+    def plot_agents(self, ax: plt.Axes, *, base_zorder: int = -1):
         ax.clear()
         # epithelium
         # * Blue Squares = Healthy Epithelial Cells
@@ -1794,14 +1799,14 @@ class AnCockrellModel:
             *self.macro_locations[self.macro_mask & under_limit_mask].T,
             color="green",
             marker="o",
-            zorder=base_zorder+1,
+            zorder=base_zorder + 1,
         )
         ax.scatter(
             *self.macro_locations[self.macro_mask & np.logical_not(under_limit_mask)].T,
             color="green",
             marker="o",
             s=2 * plt.rcParams["lines.markersize"] ** 2,
-            zorder=base_zorder+1,
+            zorder=base_zorder + 1,
         )
         # NKs
         # * Orange Circles = NK Cells
@@ -1809,7 +1814,7 @@ class AnCockrellModel:
             *self.nk_locations[self.nk_mask].T,
             color="orange",
             marker="o",
-            zorder=base_zorder+1,
+            zorder=base_zorder + 1,
         )
         # DCs
         # * Light Blue Triangles = Dendritic Cells
@@ -1817,7 +1822,7 @@ class AnCockrellModel:
             *self.dc_locations[self.dc_mask].T,
             color="lightblue",
             marker="v",
-            zorder=base_zorder+1,
+            zorder=base_zorder + 1,
         )
         # endos
         # * Pink Square Outlines = Activated Endothelial Cells
@@ -1825,7 +1830,7 @@ class AnCockrellModel:
             *np.where(self.endothelial_activation == EndoType.Activated),
             color="pink",
             marker=markers.MarkerStyle("s", fillstyle="none"),
-            zorder=base_zorder+1,
+            zorder=base_zorder + 1,
         )
         # PMNs
         # * Small White Circles = PMNs
@@ -1834,7 +1839,7 @@ class AnCockrellModel:
             color="white",
             marker="o",
             edgecolors="black",
-            zorder=base_zorder+1,
+            zorder=base_zorder + 1,
         )
 
         # TODO: non-square grid?
@@ -1871,3 +1876,159 @@ class AnCockrellModel:
             origin="lower",
             extent=(0.0, field_array.shape[0], 0.0, field_array.shape[1]),
         )  # TODO: non-square grid?
+
+    def save(self, filename: str, *, write_mode: str = "a"):
+        # compute which class attributes should be saved
+        rep = {attr: getattr(self, attr) for attr in dir(self) if attr[0] != "_"}
+        rep = {
+            k: v
+            for k, v in rep.items()
+            if isinstance(v, int | float | bool | np.ndarray)
+        }
+
+        with h5py.File(filename, write_mode) as f:
+            grp: h5py.Group = f.create_group(str(self.time))
+            for k, v in rep.items():
+                # skip things that can be automatically reconstructed
+                if k in {
+                    "num_macros",
+                    "macro_pointer",
+                    "macro_mask",
+                    "num_pmns",
+                    "pmn_pointer",
+                    "pmn_mask",
+                    "num_nks",
+                    "nk_pointer",
+                    "nk_mask",
+                    "num_dcs",
+                    "dc_pointer" "dc_mask",
+                }:
+                    continue
+
+                if isinstance(v, int | float | bool):
+                    grp.create_dataset(k, shape=(), dtype=type(v), data=v)
+                else:
+                    # numpy array
+                    if np.issubdtype(v.dtype, np.object_):
+                        v = v.astype(int)
+                    if k.startswith("macro"):
+                        v = v[self.macro_mask]
+                    elif k.startswith("pmn"):
+                        v = v[self.pmn_mask]
+                    elif k.startswith("nk"):
+                        v = v[self.nk_mask]
+                    elif k.startswith("dc"):
+                        v = v[self.dc_mask]
+                    grp.create_dataset(k, shape=v.shape, dtype=v.dtype, data=v)
+
+    @classmethod
+    def load(cls, filename: str, time: int) -> "AnCockrellModel":
+        with h5py.File(filename, "r+") as f:
+            grp: h5py.Group = f[str(time)]
+
+            model = cls(
+                GRID_WIDTH=grp["GRID_WIDTH"][()],
+                GRID_HEIGHT=grp["GRID_HEIGHT"][()],
+                is_bat=grp["is_bat"][()],
+                init_dcs=grp["init_dcs"][()],
+                init_nks=grp["init_nks"][()],
+                init_macros=grp["init_macros"][()],
+                macro_phago_recovery=grp["macro_phago_recovery"][()],
+                macro_phago_limit=grp["macro_phago_limit"][()],
+                inflammasome_activation_threshold=grp[
+                    "inflammasome_activation_threshold"
+                ][()],
+                inflammasome_priming_threshold=grp["inflammasome_priming_threshold"][
+                    ()
+                ],
+                viral_carrying_capacity=grp["viral_carrying_capacity"][()],
+                susceptibility_to_infection=grp["susceptibility_to_infection"][()],
+                human_endo_activation=grp["human_endo_activation"][()],
+                bat_endo_activation=grp["bat_endo_activation"][()],
+                bat_metabolic_byproduct=grp["bat_metabolic_byproduct"][()],
+                human_metabolic_byproduct=grp["human_metabolic_byproduct"][()],
+                resistance_to_infection=grp["resistance_to_infection"][()],
+                viral_incubation_threshold=grp["viral_incubation_threshold"][()],
+                MAX_PMNS=grp["MAX_PMNS"][()],
+                MAX_DCS=grp["MAX_DCS"][()],
+                MAX_MACROPHAGES=grp["MAX_MACROPHAGES"][()],
+                MAX_NKS=grp["MAX_NKS"][()],
+            )
+
+            # scalars not initialized by init
+            model.time = grp["time"][()]
+
+            num_macros = -1
+            num_pmns = -1
+            num_nks = -1
+            num_dcs = -1
+            for k in grp.keys():
+                if len(grp[k]) == 0:
+                    # skip the scalars, already dealt with
+                    continue
+                elif len(grp[k]) == 1:
+                    # 1d arrays correspond to agent attributes.
+                    # we learn the number of agents out of their dimensions.
+                    model_field = getattr(model, k)
+                    if k.startswith("macro"):
+                        if num_macros == -1:
+                            num_macros = grp[k].shape[0]
+                        else:
+                            assert (
+                                num_macros == grp[k].shape[0]
+                            ), "agent arrays have inconsistent sizes"
+                        model_field[:num_macros] = grp[k]
+                    elif k.startswith("pmn"):
+                        if num_pmns == -1:
+                            num_pmns = grp[k].shape[0]
+                        else:
+                            assert (
+                                num_pmns == grp[k].shape[0]
+                            ), "agent arrays have inconsistent sizes"
+                        model_field[:num_pmns] = grp[k]
+                    elif k.startswith("nk"):
+                        if num_nks == -1:
+                            num_nks = grp[k].shape[0]
+                        else:
+                            assert (
+                                num_nks == grp[k].shape[0]
+                            ), "agent arrays have inconsistent sizes"
+                        model_field[:num_nks] = grp[k]
+                    elif k.startswith("dc"):
+                        if num_dcs == -1:
+                            num_dcs = grp[k].shape[0]
+                        else:
+                            assert (
+                                num_dcs == grp[k].shape[0]
+                            ), "agent arrays have inconsistent sizes"
+                        model_field[:num_dcs] = grp[k]
+
+                elif len(grp[k]) == 2:
+                    # 2d arrays are spatial fields
+                    model_field = getattr(model, k)
+                    model_field[:, :] = grp[k]
+                else:
+                    raise RuntimeError(f"Unknown/Invalid data {k} in HDF5 file")
+
+            # set bookkeeping variables
+            model.num_macros = num_macros
+            model.macro_pointer = num_macros
+            model.macro_mask[:num_macros] = True
+            model.macro_mask[num_macros:] = False
+
+            model.num_pmns = num_pmns
+            model.pmn_pointer = num_pmns
+            model.pmn_mask[:num_pmns] = True
+            model.pmn_mask[num_pmns:] = False
+
+            model.num_nks = num_nks
+            model.nk_pointer = num_nks
+            model.nk_mask[:num_nks] = True
+            model.nk_mask[num_nks:] = False
+
+            model.num_dcs = num_dcs
+            model.dc_pointer = num_dcs
+            model.dc_mask[:num_dcs] = True
+            model.dc_mask[num_dcs:] = False
+
+            return model
