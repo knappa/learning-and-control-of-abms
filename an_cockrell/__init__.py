@@ -1805,7 +1805,7 @@ class AnCockrellModel:
             *self.macro_locations[self.macro_mask & np.logical_not(under_limit_mask)].T,
             color="green",
             marker="o",
-            s=2 * plt.rcParams["lines.markersize"] ** 2,
+            s=(2 * plt.rcParams["lines.markersize"]) ** 2,
             zorder=base_zorder + 1,
         )
         # NKs
