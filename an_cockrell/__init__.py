@@ -1842,9 +1842,8 @@ class AnCockrellModel:
             zorder=base_zorder + 1,
         )
 
-        # TODO: non-square grid?
-        ax.set_xlim(0, self.geometry[1])
-        ax.set_ylim(0, self.geometry[0])
+        ax.set_xlim(0, self.geometry[0])
+        ax.set_ylim(0, self.geometry[1])
 
     def plot_field(self, ax: plt.Axes, *, field_name):
         ax.clear()
@@ -1875,7 +1874,7 @@ class AnCockrellModel:
             vmin=0,
             origin="lower",
             extent=(0.0, field_array.shape[0], 0.0, field_array.shape[1]),
-        )  # TODO: non-square grid?
+        )
 
     def save(self, filename: str, *, write_mode: str = "a"):
         # compute which class attributes should be saved
