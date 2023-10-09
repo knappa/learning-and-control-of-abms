@@ -1,7 +1,7 @@
 from enum import IntEnum
-from typing import Optional, Tuple, Union, List
-import h5py
+from typing import List, Optional, Tuple, Union
 
+import h5py
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,7 +15,7 @@ class EpiType(IntEnum):
     Empty = 0
     Healthy = 1
     Infected = 2
-    Dead = 3
+    Dead = 3  # TODO: is this necrosis? better name?
     Apoptosed = 4
 
 
@@ -304,11 +304,11 @@ class AnCockrellModel:
     def _macro_activation_factory(self):
         return np.zeros(self.MAX_MACROPHAGES, dtype=np.float64)
 
-    macro_infected = field(type=np.ndarray)
-
-    @macro_infected.default
-    def _macro_infected_factory(self):
-        return np.zeros(self.MAX_MACROPHAGES, dtype=bool)
+    # macro_infected = field(type=np.ndarray)  # unused
+    #
+    # @macro_infected.default
+    # def _macro_infected_factory(self):
+    #     return np.zeros(self.MAX_MACROPHAGES, dtype=bool)
 
     macro_cells_eaten = field(type=np.ndarray)
 
@@ -357,6 +357,15 @@ class AnCockrellModel:
     @macro_swollen.default
     def _macro_swollen_factory(self):
         return np.zeros(self.MAX_MACROPHAGES, dtype=bool)
+
+    @property
+    def macro_phago_counter(self) -> np.ndarray:
+        return np.maximum(
+            0.0,
+            self.macro_cells_eaten
+            - self.macro_virus_eaten / 10
+            - self.macro_phago_recovery,
+        )
 
     ######################################################################
 
@@ -500,12 +509,16 @@ class AnCockrellModel:
         #   [set-background]
         # end
         rows, cols = np.divmod(
-            np.random.choice(self.GRID_HEIGHT * self.GRID_WIDTH, init_inoculum),
+            np.random.choice(
+                self.GRID_HEIGHT * self.GRID_WIDTH, init_inoculum, replace=False
+            ),
             self.GRID_WIDTH,
         )
+
         if init_inoculum == 1:
             rows = [rows[0]]
             cols = [cols[0]]
+
         for row, col in zip(rows, cols):
             self.extracellular_virus[row, col] = np.random.randint(80, 120)
 
@@ -767,6 +780,8 @@ class AnCockrellModel:
         self.pmn_locations += 0.1 * directions
         self.pmn_locations = np.mod(self.pmn_locations, self.geometry)
 
+        self._destack(self.pmn_mask, self.pmn_locations)
+
         #  set age age + 1
         self.pmn_age[self.pmn_mask] += 1
 
@@ -973,18 +988,10 @@ class AnCockrellModel:
         #   set macro-phago-counter max list 0 (cells-eaten + (virus-eaten / 10) - macro-phago-recovery)
         #   ;; macro-phago-recovery decrements counter to simulate internal processing, proxy for new macros
         #   ;; =2 => Exp 5
-
-        macro_phago_counter = np.maximum(
-            0.0,
-            self.macro_cells_eaten
-            - self.macro_virus_eaten / 10
-            - self.macro_phago_recovery,
-        )
-
         #   ifelse macro-phago-counter >= macro-phago-limit ;; this will eventually be pyroptosis
         #     [set size 2]
         over_limit_mask = self.macro_mask & (
-            macro_phago_counter >= self.macro_phago_limit
+            self.macro_phago_counter >= self.macro_phago_limit
         )
         self.macro_swollen[over_limit_mask] = True
 
@@ -992,7 +999,7 @@ class AnCockrellModel:
         #     set size 1
 
         under_limit_mask = self.macro_mask & (
-            macro_phago_counter < self.macro_phago_limit
+            self.macro_phago_counter < self.macro_phago_limit
         )
         self.macro_swollen[under_limit_mask] = False
 
@@ -1005,7 +1012,9 @@ class AnCockrellModel:
         #      ]
 
         locations = self.macro_locations[under_limit_mask].astype(np.int64)
-        virus_uptake = np.minimum(10.0, self.extracellular_virus[tuple(locations.T)])
+        virus_uptake = np.minimum(
+            10.0, self.extracellular_virus[tuple(locations.T)]
+        )  # TODO: pull-request submitted on disagreement between code and comment
         self.extracellular_virus[tuple(locations.T)] -= virus_uptake
         self.macro_virus_eaten[under_limit_mask] += virus_uptake
 
@@ -1618,7 +1627,7 @@ class AnCockrellModel:
         self.macro_dirs[self.macro_pointer] = 2 * np.pi * np.random.rand()
 
         self.macro_internal_virus[self.macro_pointer] = 0
-        self.macro_infected[self.macro_pointer] = False
+        # self.macro_infected[self.macro_pointer] = False
         self.macro_pre_il1[self.macro_pointer] = pre_il1
         self.macro_pre_il18[self.macro_pointer] = pre_il18
         self.macro_inflammasome_primed[self.macro_pointer] = inflammasome_primed
@@ -1642,7 +1651,7 @@ class AnCockrellModel:
         self.macro_activation[: self.num_macros] = self.macro_activation[
             self.macro_mask
         ]
-        self.macro_infected[: self.num_macros] = self.macro_infected[self.macro_mask]
+        # self.macro_infected[: self.num_macros] = self.macro_infected[self.macro_mask]
         self.macro_cells_eaten[: self.num_macros] = self.macro_cells_eaten[
             self.macro_mask
         ]
@@ -1788,21 +1797,16 @@ class AnCockrellModel:
         # macrophages
         # * Green Circles = Macrophages
         # * Large Green Circles = Macrophages at phagocytosis limit
-        macro_phago_counter = np.maximum(
-            0.0,
-            self.macro_cells_eaten
-            - self.macro_virus_eaten / 10
-            - self.macro_phago_recovery,
-        )  # TODO: deduplicate this?
-        under_limit_mask = macro_phago_counter < self.macro_phago_limit
+        under_limit_mask = self.macro_phago_counter < self.macro_phago_limit
         ax.scatter(
             *self.macro_locations[self.macro_mask & under_limit_mask].T,
             color="green",
             marker="o",
             zorder=base_zorder + 1,
         )
+        over_limit_mask = self.macro_phago_counter >= self.macro_phago_limit
         ax.scatter(
-            *self.macro_locations[self.macro_mask & np.logical_not(under_limit_mask)].T,
+            *self.macro_locations[self.macro_mask & over_limit_mask].T,
             color="green",
             marker="o",
             s=(2 * plt.rcParams["lines.markersize"]) ** 2,
