@@ -31,7 +31,7 @@ infected_epis = np.zeros((num_sims, num_steps), dtype=np.float64)
 dead_epis = np.zeros((num_sims, num_steps), dtype=np.float64)
 apoptosed_epis = np.zeros((num_sims, num_steps), dtype=np.float64)
 
-for sim_idx in trange(num_sims, desc='simulation'):
+for sim_idx in trange(num_sims, desc="simulation"):
     model = an_cockrell.AnCockrellModel(
         GRID_WIDTH=51,
         GRID_HEIGHT=51,

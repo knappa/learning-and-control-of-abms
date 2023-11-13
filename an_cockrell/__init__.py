@@ -47,6 +47,7 @@ class AnCockrellModel:
     MAX_DCS: int = field(default=BIG_NUM)
     MAX_MACROPHAGES: int = field(default=BIG_NUM)
     MAX_NKS: int = field(default=BIG_NUM)
+    HARD_BOUND: bool = field(default=True)
 
     is_bat: bool = field()
     init_dcs: int = field()
@@ -1686,12 +1687,14 @@ class AnCockrellModel:
                 self.create_nk(loc=loc)
         elif number == 1:
             if self.nk_pointer >= self.MAX_NKS:
-                self.compact_nk_arrays()
+                self._compact_nk_arrays()
                 # maybe the array is already compacted:
-                if self.nk_pointer >= self.MAX_NKS:
+                if self.HARD_BOUND & self.nk_pointer >= self.MAX_NKS:
                     raise RuntimeError(
                         "Max NKs exceeded, you may want to change the MAX_NKS parameter."
                     )
+                else:
+                    self._expand_nk_arrays()
             if loc is None:
                 self.nk_locations[self.nk_pointer, :] = np.array(
                     self.geometry
@@ -1709,7 +1712,7 @@ class AnCockrellModel:
                 f"Creating {number} NKs does not mean anything to this function"
             )
 
-    def compact_nk_arrays(self):
+    def _compact_nk_arrays(self):
         self.nk_locations[: self.num_nks] = self.nk_locations[self.nk_mask]
         self.nk_dirs[: self.num_nks] = self.nk_dirs[self.nk_mask]
         self.nk_age[: self.num_nks] = self.nk_age[self.nk_mask]
@@ -1717,6 +1720,35 @@ class AnCockrellModel:
         self.nk_mask[: self.num_nks] = True
         self.nk_mask[self.num_nks :] = False
         self.nk_pointer = self.num_nks
+
+    def _expand_nk_arrays(self):
+        old_max_nks = self.MAX_NKS
+        self.MAX_NKS *= 2
+
+        self.nk_locations = np.pad(
+            self.nk_locations,
+            pad_width=np.array(((0, old_max_nks), (0, 0))),
+            mode="constant",
+            constant_values=(0, 0),
+        )
+        self.nk_dirs = np.pad(
+            self.nk_dirs,
+            pad_width=np.array((0, old_max_nks)),
+            mode="constant",
+            constant_values=0.0,
+        )
+        self.nk_age = np.pad(
+            self.nk_age,
+            pad_width=np.array((0, old_max_nks)),
+            mode="constant",
+            constant_values=0,
+        )
+        self.nk_mask = np.pad(
+            self.nk_mask,
+            pad_width=np.array((0, old_max_nks)),
+            mode="constant",
+            constant_values=False,
+        )
 
     def create_macro(
         self,
@@ -2049,7 +2081,7 @@ class AnCockrellModel:
     def load(cls, filename: str, time: int) -> "AnCockrellModel":
         with h5py.File(filename, "r+") as f:
             grp: h5py.Group = f[str(time)]
-
+            # TODO: add new params
             model = cls(
                 GRID_WIDTH=grp["GRID_WIDTH"][()],
                 GRID_HEIGHT=grp["GRID_HEIGHT"][()],
