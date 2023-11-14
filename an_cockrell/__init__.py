@@ -50,6 +50,7 @@ class AnCockrellModel:
     HARD_BOUND: bool = field(default=True)
 
     is_bat: bool = field()
+    init_inoculum: int = field()
     init_dcs: int = field()
     init_nks: int = field()
     init_macros: int = field()
@@ -567,7 +568,13 @@ class AnCockrellModel:
     def total_intracellular_virus(self) -> float:
         return float(np.sum(self.epi_intracellular_virus))
 
-    # self.system_health =  count epis / 2601 * 100
+    @property
+    def system_health(self) -> float:
+        return (
+            100.0
+            * np.sum(self.epithelium == EpiType.Healthy)
+            / (self.GRID_WIDTH * self.GRID_HEIGHT)
+        )
 
     def __attrs_post_init__(self):
         if self.is_bat:
@@ -591,6 +598,10 @@ class AnCockrellModel:
 
         for _ in range(self.init_dcs):
             self.create_dc()  # (dc_location="tissue", trafficking_counter=0)
+
+        self.infect(
+            init_inoculum=self.init_inoculum
+        )  # Initial-inoculum from 25-150 increments of 25, run for 14 days (2016 steps)
 
     def infect(self, init_inoculum: int):
         # to infect
