@@ -1879,9 +1879,7 @@ class AnCockrellModel:
             self.compact_pmn_arrays()
             # maybe the array is already compacted:
             if self.pmn_pointer >= self.MAX_PMNS:
-                raise RuntimeError(
-                    "Max PMNs exceeded, you may want to change the MAX_PMNS parameter."
-                )
+                self._expand_pmn_arrays()
         if location is None:
             self.pmn_locations[self.pmn_pointer, :] = np.array(
                 self.geometry
@@ -1913,6 +1911,35 @@ class AnCockrellModel:
         self.pmn_mask[: self.num_pmns] = True
         self.pmn_mask[self.num_pmns :] = False
         self.pmn_pointer = self.num_pmns
+
+    def _expand_pmn_arrays(self):
+        old_max_pmns = self.MAX_PMNS
+        self.MAX_PMNS *= 2
+
+        self.pmn_locations = np.pad(
+            self.pmn_locations,
+            pad_width=np.array(((0, old_max_pmns), (0, 0))),
+            mode="constant",
+            constant_values=(0, 0),
+        )
+        self.pmn_dirs = np.pad(
+            self.pmn_dirs,
+            pad_width=np.array((0, old_max_pmns)),
+            mode="constant",
+            constant_values=0.0,
+        )
+        self.pmn_age = np.pad(
+            self.pmn_age,
+            pad_width=np.array((0, old_max_pmns)),
+            mode="constant",
+            constant_values=0,
+        )
+        self.pmn_mask = np.pad(
+            self.pmn_mask,
+            pad_width=np.array((0, old_max_pmns)),
+            mode="constant",
+            constant_values=False,
+        )
 
     def _destack(self, mask: np.ndarray, locations: np.ndarray):
         """
@@ -2097,6 +2124,7 @@ class AnCockrellModel:
                 GRID_WIDTH=grp["GRID_WIDTH"][()],
                 GRID_HEIGHT=grp["GRID_HEIGHT"][()],
                 is_bat=grp["is_bat"][()],
+                init_inoculum=grp["init_inoculum"][()],
                 init_dcs=grp["init_dcs"][()],
                 init_nks=grp["init_nks"][()],
                 init_macros=grp["init_macros"][()],
