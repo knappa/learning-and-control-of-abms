@@ -1,0 +1,3 @@
+[submodule "an-cockrell"]
+	path = an-cockrell
+	url = git@github.com:knappa/an-cockrell.git
