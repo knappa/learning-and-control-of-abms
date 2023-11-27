@@ -1,3 +1,6 @@
 [submodule "an-cockrell"]
 	path = an-cockrell
 	url = git@github.com:knappa/an-cockrell.git
+[submodule "wolf-sheep-grass"]
+	path = wolf-sheep-grass
+	url = git@github.com:knappa/wolf-sheep-grass.git
